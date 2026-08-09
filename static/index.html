@@ -30,11 +30,17 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 70px}
 .card{border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:#fff;position:relative}
 .card.pending{border-left:3px solid var(--warn)}.card.applied{border-left:3px solid var(--ok)}
 .card.dup{border:2px solid var(--err);box-shadow:0 0 0 2px rgba(220,38,38,.12)}
-.thumb{width:100%;height:140px;object-fit:cover;border-radius:8px;background:#eef0f3;margin-bottom:10px;display:block}
+.thumb{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#eef0f3;margin-bottom:10px;display:block}
 .thumb.empty{display:flex;align-items:center;justify-content:center;color:#9aa3af;font-size:13px}
 .cname{font-weight:600;font-size:15px;margin-bottom:2px;word-break:break-all}
 .path{font-size:11px;color:var(--muted);word-break:break-all;margin-bottom:8px;background:#f6f8fa;padding:5px 7px;border-radius:6px}
 .kv{font-size:12px;color:var(--muted);display:grid;grid-template-columns:64px 1fr;gap:2px 8px;margin-bottom:8px}
+.card-info{overflow:hidden;transition:max-height .25s ease,opacity .2s ease}
+.card-info.collapsed{max-height:0!important;opacity:0;margin-bottom:0!important}
+.card-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;padding:4px 0;border-radius:6px}
+.card-toggle:hover{color:var(--primary)}
+.card-toggle .tri{display:inline-block;transition:transform .2s;font-size:10px}
+.card-info.collapsed+.card-toggle .tri{transform:rotate(-90deg)}
 .kv b{font-weight:500;color:var(--text)}
 .badge{display:inline-block;background:var(--chip);color:var(--primary-d);padding:2px 8px;border-radius:20px;font-size:11px;margin:2px 4px 2px 0}
 .badge.cat{background:#ecfdf5;color:#047857}
@@ -287,9 +293,10 @@ async function loadPending(){
 function renderPending(files){
   const w=$('#pendingWrap');
   if(!files.length){w.innerHTML='<div class="empty-state">暂无待整理，请先上传</div>';return}
-  w.innerHTML='<div class="grid">'+files.map(cardHTML).join('')+'</div>';
+  // 待整理默认展开
+  w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>';
 }
-function cardHTML(f,showActions=true){
+function cardHTML(f,showActions=true,collapsed=false){
   const plates=(f.plate_imgs||'').split(',').filter(Boolean);
   const thumb=f.thumb
     ?`<img class="thumb" src="/thumbs/${f.thumb}" onclick="openViewer('${f.id}')" style="cursor:zoom-in" title="点击查看摆盘图">`
@@ -298,11 +305,13 @@ function cardHTML(f,showActions=true){
     ?`<span class="badge" style="cursor:pointer" onclick="openViewer('${f.id}')">🖼 摆盘${plates.length?'×'+plates.length:''}</span>`
     :'';
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
+  const infoCls=collapsed?'card-info collapsed':'card-info';
   return `<div class="card ${f.status}">
     ${thumb}
     ${plateBtn}
     <div class="cname">${esc(f.filename)}</div>
     <div class="path">${esc(f.path)}</div>
+    <div class="${infoCls}" id="info-${f.id}">
     <div class="kv">
       <b>分类</b><span class="badge cat">${esc(f.category)}</span>
       <b>目标</b><span>${esc(f.target_dir||'—')}</span>
@@ -333,6 +342,8 @@ function cardHTML(f,showActions=true){
     </div>
     <div class="taglist">${tags||'<span class="hint">无标签</span>'}</div>
     <div class="attach-list" id="att-${f.id}"></div>
+    </div>
+    <div class="card-toggle" onclick="toggleInfo(${f.id})"><span class="tri">▼</span> <span id="tog-${f.id}">${collapsed?'展开信息':'收起信息'}</span></div>
   </div>`;
 }
 // 归档
@@ -381,7 +392,37 @@ async function delFile(id){if(!confirm('从索引移除（不删磁盘文件）�
 let _dt;function debouncedSearch(){clearTimeout(_dt);_dt=setTimeout(search,300)}
 async function loadCatFilter(){const r=await fetch('/api/categories');const j=await r.json();const fr=await fetch('/api/files');const fj=await fr.json();const uniq=new Set();fj.files.forEach(f=>{if(f.category)uniq.add(f.category.split(' · ')[0])});$('#f-cat').innerHTML='<option value="">全部分类</option>'+[...uniq].sort().map(c=>`<option>${esc(c)}</option>`).join('')}
 async function search(){const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);const r=await fetch('/api/files?'+p);const j=await r.json();renderLib(j.files)}
-function renderLib(files){const w=$('#libWrap');if(!files.length){w.innerHTML='<div class="empty-state">无匹配文件</div>';return}w.innerHTML=`<div class="hint" style="margin-bottom:10px">共 ${files.length} 个</div><div class="grid">`+files.map(f=>cardHTML(f,false)).join('')+'</div>';files.forEach(f=>loadAttachments(f.id))}
+// 模型库分页
+let libPage=1, libPageSize=20, libAll=[];
+function renderLib(files){
+  libAll=files||[]; libPage=1; paintLib();
+}
+function paintLib(){
+  const w=$('#libWrap');
+  if(!libAll.length){w.innerHTML='<div class="empty-state">无匹配文件</div>';return}
+  const total=libAll.length, pages=Math.max(1,Math.ceil(total/libPageSize));
+  if(libPage>pages)libPage=pages;
+  const start=(libPage-1)*libPageSize;
+  const page=libAll.slice(start,start+libPageSize);
+  // 模型库默认收缩
+  let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+
+    page.map(f=>cardHTML(f,false,true)).join('')+'</div>';
+  html+=`<div class="pager" style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:16px">
+    <button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button>
+    <span style="font-size:13px;color:var(--muted)">${libPage} / ${pages}</span>
+    <button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button>
+  </div>`;
+  w.innerHTML=html;
+  page.forEach(f=>loadAttachments(f.id));
+}
+function libGo(p){if(p<1)return;libPage=p;paintLib()}
+
+// 信息折叠
+function toggleInfo(id){
+  const box=$('#info-'+id);if(!box)return;
+  const collapsed=box.classList.toggle('collapsed');
+  const t=$('#tog-'+id);if(t)t.textContent=collapsed?'展开信息':'收起信息';
+}
 // ===== 对话 =====
 function addMsg(role,text,src){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;if(src&&src.length)div.querySelector('.bubble').insertAdjacentHTML('beforeend',`<div class="src">来源：${src.slice(0,3).map(s=>esc(s)).join('、')}${src.length>3?' 等':''}</div>`);box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
 let sessionId='s'+Date.now();
