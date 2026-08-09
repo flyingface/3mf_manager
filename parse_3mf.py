@@ -26,7 +26,13 @@ def parse_3mf(path):
         with zipfile.ZipFile(path) as z:
             names = z.namelist()
             rec["has_slice"] = any(n.lower().endswith("slice_info.config") for n in names)
-            rec["plates"] = sum(1 for n in names if re.search(r"Metadata/plate_", n))
+            # 摆盘数 = 不同的 plate_N 编号（.png 或 .json），避免重复计数
+            plate_nums = set()
+            for n in names:
+                m = re.search(r"Metadata/plate_(\d+)\.(?:png|json)", n)
+                if m:
+                    plate_nums.add(int(m.group(1)))
+            rec["plates"] = len(plate_nums)
             model_entries = [n for n in names if n.lower().endswith(".model")]
             if not model_entries:
                 return rec
@@ -56,6 +62,42 @@ def parse_3mf(path):
     except Exception as e:
         rec["error"] = str(e)
     return rec
+
+
+def extract_previews(path):
+    """从 3MF 内提取内嵌预览图（Bambu Studio 打包）。
+
+    返回:
+      {
+        "model": {name, data} | None,        # 模型主预览图（thumbnail_middle 优先）
+        "small": {name, data} | None,        # 模型小图
+        "plates": [ {index, data}, ... ]     # 各打印板摆盘图（plate_N.png，按 N 排序）
+      }
+    若无任何内嵌图返回 {"model": None, "small": None, "plates": []}。
+    """
+    out = {"model": None, "small": None, "plates": []}
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = set(z.namelist())
+            # 模型缩略图：优先 thumbnail_middle，其次 thumbnail_3mf
+            for cand in ("Auxiliaries/.thumbnails/thumbnail_middle.png",
+                         "Auxiliaries/.thumbnails/thumbnail_3mf.png",
+                         "Auxiliaries/.thumbnails/thumbnail_small.png"):
+                if cand in names:
+                    out["model"] = {"name": os.path.basename(cand), "data": z.read(cand)}
+                    break
+            # 摆盘图 plate_N.png
+            plate_items = []
+            for n in names:
+                m = re.search(r"Metadata/plate_(\d+)\.png$", n)
+                if m:
+                    plate_items.append((int(m.group(1)), n))
+            for idx, n in sorted(plate_items, key=lambda x: x[0]):
+                out["plates"].append({"index": idx, "data": z.read(n)})
+    except Exception:
+        pass
+    return out
+
 
 def norm_title(t):
     t = (t or "").strip().lower()

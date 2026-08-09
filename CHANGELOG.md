@@ -2,6 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-08-09
+
+### 新增
+- **摆盘缩略图提取**：解析时自动提取 3MF 内嵌的模型预览图与各打印板摆盘图（`Auxiliaries/.thumbnails/*` + `Metadata/plate_N.png`），卡片显示，点击放大、键盘/按钮切换多板视图
+- `parse_3mf.extract_previews()`：解压内嵌图，零 3D 渲染成本
+- `plates` 计数修正：不再把 `plate_N.png` 与 `plate_N.json` 重复计入
+- 数据库新增 `plate_imgs` 字段（自动迁移）
+
 ## [2.0.0] - 2026-08-09
 
 ### 新增

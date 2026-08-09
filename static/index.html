@@ -62,6 +62,15 @@ input[type=text]:focus,select:focus,textarea:focus{outline:2px solid var(--prima
 .empty-state{text-align:center;color:var(--muted);padding:36px 0}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:.3s;pointer-events:none}
 .toast.show{opacity:1}
+/* 摆盘图查看器 */
+.viewer-mask{position:fixed;inset:0;background:rgba(15,23,42,.7);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(2px)}
+.viewer-mask.show{display:flex}
+.viewer{background:#fff;border-radius:14px;max-width:90vw;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column}
+.viewer-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)}
+.viewer-head #viewerTitle{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.viewer-nav{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.viewer img{max-width:86vw;max-height:calc(86vh - 90px);object-fit:contain;background:#f8f9fb}
+.viewer-caption{padding:8px 14px;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}
 .llm-result{background:#f0f7ff;border:1px solid #cfe3ff;border-radius:8px;padding:10px;margin-top:8px;font-size:13px}
 .llm-result .newcat{background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-weight:600;display:inline-block;margin:4px 0}
 .chat-box{display:flex;flex-direction:column;height:460px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
@@ -193,9 +202,53 @@ input[type=text]:focus,select:focus,textarea:focus{outline:2px solid var(--prima
   </section>
 </main>
 <div class="toast" id="toast"></div>
+
+<!-- 摆盘图查看器 -->
+<div class="viewer-mask" id="viewerMask" onclick="closeViewer(event)">
+  <div class="viewer">
+    <div class="viewer-head">
+      <span id="viewerTitle"></span>
+      <span class="viewer-nav">
+        <button class="btn ghost sm" onclick="viewerPrev()">◀</button>
+        <span id="viewerIdx"></span>
+        <button class="btn ghost sm" onclick="viewerNext()">▶</button>
+      </span>
+      <button class="btn ghost sm" onclick="closeViewer()">✕</button>
+    </div>
+    <img id="viewerImg" src="" alt="">
+    <div class="viewer-caption" id="viewerCaption"></div>
+  </div>
+</div>
 <script>
 const $=s=>document.querySelector(s);
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+// ---- 摆盘图查看器 ----
+let viewerFiles=[], viewerIdx=0;
+async function openViewer(fileId){
+  const r=await fetch('/api/files');const j=await r.json();
+  const f=j.files.find(x=>x.id==fileId);
+  if(!f)return;
+  viewerFiles=[];
+  if(f.thumb)viewerFiles.push({url:'/thumbs/'+f.thumb,label:'模型预览'});
+  (f.plate_imgs||'').split(',').filter(Boolean).forEach(p=>viewerFiles.push({url:'/thumbs/'+p,label:'摆盘图'}));
+  if(!viewerFiles.length){toast('该文件无摆盘图');return}
+  viewerIdx=0;showViewerImage();
+  $('#viewerMask').classList.add('show');
+}
+function showViewerImage(){
+  if(!viewerFiles.length)return;
+  const v=viewerFiles[viewerIdx];
+  $('#viewerImg').src=v.url;
+  $('#viewerImg').alt=v.label;
+  $('#viewerTitle').textContent=document.title.split('·')[0].trim();
+  $('#viewerCaption').textContent=v.label;
+  $('#viewerIdx').textContent=(viewerIdx+1)+' / '+viewerFiles.length;
+}
+function viewerNext(){if(viewerFiles.length)viewerIdx=(viewerIdx+1)%viewerFiles.length;showViewerImage()}
+function viewerPrev(){if(viewerFiles.length)viewerIdx=(viewerIdx-1+viewerFiles.length)%viewerFiles.length;showViewerImage()}
+function closeViewer(e){if(e&&e.target!==e.currentTarget)return;$('#viewerMask').classList.remove('show')}
+document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev();if(e.key==='Escape')closeViewer()}})
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2200)}
 function switchTab(name){
   ['dash','pending','library','chat','settings'].forEach(n=>{
@@ -237,10 +290,17 @@ function renderPending(files){
   w.innerHTML='<div class="grid">'+files.map(cardHTML).join('')+'</div>';
 }
 function cardHTML(f,showActions=true){
-  const thumb=f.thumb?`<img class="thumb" src="/thumbs/${f.thumb}">`:'<div class="thumb empty">未上传缩略图</div>';
+  const plates=(f.plate_imgs||'').split(',').filter(Boolean);
+  const thumb=f.thumb
+    ?`<img class="thumb" src="/thumbs/${f.thumb}" onclick="openViewer('${f.id}')" style="cursor:zoom-in" title="点击查看摆盘图">`
+    :`<div class="thumb empty">未上传缩略图</div>`;
+  const plateBtn=(plates.length||f.thumb)
+    ?`<span class="badge" style="cursor:pointer" onclick="openViewer('${f.id}')">🖼 摆盘${plates.length?'×'+plates.length:''}</span>`
+    :'';
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
   return `<div class="card ${f.status}">
     ${thumb}
+    ${plateBtn}
     <div class="cname">${esc(f.filename)}</div>
     <div class="path">${esc(f.path)}</div>
     <div class="kv">

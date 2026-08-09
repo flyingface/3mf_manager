@@ -1,6 +1,6 @@
 [project]
 name = "3mf-manager"
-version = "2.0.0"
+version = "2.1.0"
 description = "Local 3MF file manager for 3D printing — parse, classify, rename, search and organize your MakerWorld 3MF files"
 readme = "README.md"
 requires-python = ">=3.10"

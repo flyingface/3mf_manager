@@ -305,6 +305,7 @@ def init_db():
         category TEXT, alias TEXT, target_dir TEXT,
         status TEXT DEFAULT 'pending',
         tags TEXT DEFAULT '', thumb TEXT DEFAULT '',
+        plate_imgs TEXT DEFAULT '',
         created_at TEXT, applied_at TEXT
     );
     CREATE TABLE IF NOT EXISTS attachments (
@@ -321,6 +322,10 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_files_sha ON files(sha256);
     CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);
     """)
+    # 迁移：老库补 plate_imgs 列
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(files)")]
+    if "plate_imgs" not in cols:
+        conn.execute("ALTER TABLE files ADD COLUMN plate_imgs TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 
@@ -622,7 +627,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"files": rows, "count": len(rows)})
 
     def _ingest(self, path):
-        """解析 + 分类 + 别名 + hash，写入索引。返回记录。"""
+        """解析 + 分类 + 别名 + hash + 提取摆盘图，写入索引。返回记录。"""
         filename = os.path.basename(path)
         meta = parse_3mf.parse_3mf(path)
         size = os.path.getsize(path) / 1024 / 1024
@@ -633,18 +638,35 @@ class Handler(BaseHTTPRequestHandler):
         alias = make_alias(filename, title)
         target = target_relpath(category, filename, title, folder)
         h = sha256_file(path)
+        # ---- 提取内嵌摆盘图并落盘 ----
+        thumb_name = ""
+        plate_files = []
+        try:
+            pv = parse_3mf.extract_previews(path)
+            if pv["model"]:
+                thumb_name = f"auto_{int(time.time())}_{hashlib.md5(path.encode()).hexdigest()[:8]}.png"
+                with open(os.path.join(THUMB_DIR, thumb_name), "wb") as f:
+                    f.write(pv["model"]["data"])
+            for p in pv["plates"]:
+                pf = f"p{int(time.time())}_{p['index']}_{hashlib.md5(path.encode()).hexdigest()[:8]}.png"
+                with open(os.path.join(THUMB_DIR, pf), "wb") as f:
+                    f.write(p["data"])
+                plate_files.append(pf)
+        except Exception:
+            pass
+        plate_imgs = ",".join(plate_files)
         conn = db_conn()
         conn.execute("""
             INSERT OR REPLACE INTO files
             (abs_path, filename, folder, size_mb, title, designer, license, creation_date,
              design_id, profile_title, objects, vertices, triangles, plates, has_slice,
-             geom_sig, sha256, category, alias, target_dir, status, tags, thumb, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             geom_sig, sha256, category, alias, target_dir, status, tags, thumb, plate_imgs, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (path, filename, folder, round(size, 2), meta["title"], meta["designer"],
               meta["license"], meta["creation_date"], meta["design_id"], meta["profile_title"],
               meta["objects"], meta["vertices"], meta["triangles"], meta["plates"],
               1 if meta["has_slice"] else 0, meta["geom_sig"], h, category, alias, target,
-              "pending", "", "", time.strftime("%Y-%m-%d %H:%M:%S")))
+              "pending", "", thumb_name, plate_imgs, time.strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         rec = dict(conn.execute("SELECT * FROM files WHERE abs_path=?", (path,)).fetchone())
         conn.close()

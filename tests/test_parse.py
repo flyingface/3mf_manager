@@ -54,3 +54,34 @@ def test_parse_invalid_file(tmp_path):
 def test_norm_title():
     assert parse_3mf.norm_title("  Hi  Foo ") == "hifoo"
     assert parse_3mf.norm_title("") == ""
+
+
+def test_extract_previews(make_3mf, tmp_path):
+    """应提取内嵌模型图与各板摆盘图。"""
+    import zipfile, io
+    # 构造含缩略图 + 2 张摆盘图的 3MF
+    buf = io.BytesIO()
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40  # 伪 PNG
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("3D/3dmodel.model", "<model><build></build></model>")
+        z.writestr("Auxiliaries/.thumbnails/thumbnail_middle.png", png)
+        z.writestr("Metadata/plate_1.png", png)
+        z.writestr("Metadata/plate_2.png", png)
+        # 加 json 不应算作摆盘图
+        z.writestr("Metadata/plate_2.json", "{}")
+    p = tmp_path / "pv.3mf"
+    with open(p, "wb") as f:
+        f.write(buf.getvalue())
+    r = parse_3mf.extract_previews(str(p))
+    assert r["model"] is not None
+    assert r["model"]["name"] == "thumbnail_middle.png"
+    assert [x["index"] for x in r["plates"]] == [1, 2]
+    # plates 计数不应把 json 重复计
+    assert parse_3mf.parse_3mf(str(p))["plates"] == 2
+
+
+def test_extract_previews_none(tmp_path):
+    p = tmp_path / "empty.3mf"
+    p.write_bytes(b"not zip")
+    r = parse_3mf.extract_previews(str(p))
+    assert r["model"] is None and r["plates"] == []
