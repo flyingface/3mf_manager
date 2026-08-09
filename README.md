@@ -34,7 +34,8 @@
 
 ```bash
 # 1. 安装依赖（uv 方式，推荐）
-uv sync --dev
+uv sync                      # 运行时依赖（零第三方）
+uv sync --dev --extra dev    # 含开发依赖（pytest）
 
 # 2. 前台运行（开发）
 uv run mfmanager            # 默认 http://127.0.0.1:8000
@@ -62,9 +63,13 @@ open http://127.0.0.1:8000
 ## 🧪 运行测试
 
 ```bash
-uv run pytest                # 或 uv run pytest tests/ -v
-uv run pytest --cov=.        # 带覆盖率
+uv sync --dev --extra dev     # 安装 pytest
+uv run pytest                 # 全部测试
+uv run pytest tests/ -v       # 详细
+uv run pytest --cov=.         # 带覆盖率
 ```
+
+macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）。
 
 ## ⚙️ 配置
 
