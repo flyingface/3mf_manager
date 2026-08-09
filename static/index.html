@@ -248,7 +248,7 @@ input::placeholder{color:var(--tert)}
         <div class="toolbar">
           <input type="text" id="q" placeholder="搜索 文件名/标题/归档名/MakeWorld ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
           <select id="f-cat"><option value="">全部分类</option></select>
-          <select id="f-status"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied">已归档</option></select>
+          <select id="f-status"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied" selected>已归档</option></select>
           <button class="btn p" onclick="search()">查询</button>
         </div>
         <div class="hint" style="margin-bottom:8px">语义搜索请用「智能对话」。</div>
@@ -352,7 +352,7 @@ async function uploadFiles(files){
 }
 
 // ===== 卡片渲染（横向布局，对齐设计稿） =====
-function cardHTML(f,showActions=true,collapsed=false){
+function cardHTML(f,collapsed=false){
   const plates=(f.plate_imgs||'').split(',').filter(Boolean);
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
   const infoCls=collapsed?'card-info collapsed':'card-info';
@@ -366,14 +366,14 @@ function cardHTML(f,showActions=true,collapsed=false){
     ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
     ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
     <span class="pill">${f.size_mb}MB</span>`;
-  // 状态显示：未归档且可操作→显示归档按钮；否则显示文字状态徽章
+  // 状态显示：归档按钮仅由「状态」决定（pending 显示，与所在界面无关）；其余状态显示文字徽章
   let statusArea='';
-  if(showActions&&f.status==='pending'){
+  if(f.status==='pending'){
     statusArea=`<button class="btn ok sm" onclick="applyOne(${f.id})" title="归档到分类">归档</button>`;
-  }else if(f.status==='pending'){
-    statusArea=`<span class="pill y">待整理</span>`;
   }else if(f.status==='applied'){
     statusArea=`<span class="pill" style="background:var(--ok-soft);color:var(--ok)">已归档</span>`;
+  }else{
+    statusArea=`<span class="pill y">${esc(f.status||'未知')}</span>`;
   }
   // 仅「待整理」卡片允许修改归档名与分类
   const editable = f.status==='pending';
@@ -454,7 +454,7 @@ function toggleInfo(ev){
 function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<div class="sk-card"><div class="sk-bg sk-img"></div><div class="sk-bg sk-line w80"></div><div class="sk-bg sk-line w60"></div><div class="sk-bg sk-line w40"></div></div>`}s+='</div>';return s}
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
 async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
-function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>';files.forEach(f=>loadAttachments(f.id))}
+function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,false)).join('')+'</div>';files.forEach(f=>loadAttachments(f.id))}
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const ids=j.files.map(f=>f.id);if(!ids.length){toast('无待整理');return}const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();toast(`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`);loadPending()}
 function toggleReclass(id,el){const card=el.closest('.card');const d=card.querySelector('#reclass-'+id);d.style.display=d.style.display==='none'?'block':'none';if(d.style.display==='block')loadCategoryOptions(id,card)}
@@ -491,7 +491,7 @@ async function loadCatFilter(){const r=await fetch('/api/categories');const j=aw
 async function search(){$('#libWrap').innerHTML=skeletonHTML(6);const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);const r=await fetch('/api/files?'+p);const j=await r.json();renderLib(j.files)}
 let libPage=1,libPageSize=20,libAll=[];
 function renderLib(files){libAll=files||[];libPage=1;paintLib()}
-function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,true,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
+function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
 function libGo(p){if(p<1)return;libPage=p;paintLib()}
 
 // ===== 对话 =====
