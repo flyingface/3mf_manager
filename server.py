@@ -1045,7 +1045,14 @@ class Handler(BaseHTTPRequestHandler):
         fid = data.get("id"); tags = data.get("tags", [])
         if isinstance(tags, str):
             tags = [t for t in tags.split(",") if t.strip()]
-        tags = [t.strip() for t in tags if t.strip()]
+        # 去重（保持顺序），避免重复标签
+        seen = set()
+        dedup = []
+        for t in tags:
+            t = t.strip()
+            if t and t not in seen:
+                seen.add(t); dedup.append(t)
+        tags = dedup
         conn = db_conn()
         conn.execute("UPDATE files SET tags=? WHERE id=?", (",".join(tags), fid))
         conn.commit(); conn.close()

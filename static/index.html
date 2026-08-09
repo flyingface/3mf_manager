@@ -580,7 +580,7 @@ function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 S
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
 
 // ===== Tag =====
-async function addTag(id,el){const inp=el.closest('.card').querySelector('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';loadPending()}
+async function addTag(id,el){const inp=el.closest('.card').querySelector('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);if(tags.some(t=>t===v)){toast('标签已关联');inp.value='';return}tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';toast('已添加标签');loadPending()}
 async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});loadPending()}
 
 // ===== 缩略图/附件 =====
