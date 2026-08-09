@@ -384,7 +384,7 @@ function cardHTML(f,showActions=true,collapsed=false){
     ? `<b>分类</b><span class="kv-val"><span id="cat-${f.id}" class="kv-txt cat-edit" title="点击编辑分类" data-cur="${esc(f.category||'')}" onclick="editCategory(${f.id}, this);event.stopPropagation()">${esc(f.category||'—')}</span><button class="kv-ico" title="AI 自动分类" data-cur="${esc(f.category||'')}" onclick="llmClassify(${f.id}, this);event.stopPropagation()">🤖</button></span>`
     : `<b>分类</b><span>${esc(f.category||'—')}</span>`;
   const reclassMenu = editable
-    ? `<div class="mi" onclick="toggleReclass(${f.id})">手动改分类</div>`
+    ? `<div class="mi" onclick="toggleReclass(${f.id}, this)">手动改分类</div>`
     : '';
   return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
     <div class="card-hd">
@@ -394,7 +394,7 @@ function cardHTML(f,showActions=true,collapsed=false){
           <div class="cname" title="${esc(f.filename)}">${esc(headTitle)}</div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
             ${statusArea}
-            <div class="dotm" onclick="toggleMenu(event,${f.id})">⋯</div>
+            <div class="dotm" onclick="toggleMenu(event,${f.id},this)">⋯</div>
           </div>
         </div>
         <div class="pillgrp">${catPill}${metaPills}</div>
@@ -406,10 +406,10 @@ function cardHTML(f,showActions=true,collapsed=false){
       <div class="mi" onclick="attachFile(${f.id})">关联附件</div>
       <div class="mi dg" onclick="delFile(${f.id})">删除文件</div>
     </div>
-    <div id="llm-${f.id}"></div>
+    <div id="llm-${f.id}" class="llm-box"></div>
     <div id="reclass-${f.id}" style="display:none;padding:0 14px">
       <select id="rc-cat-${f.id}" class="alias-input"></select>
-      <button class="btn ok sm" style="margin-top:6px" onclick="reclassApply(${f.id})">应用</button>
+      <button class="btn ok sm" style="margin-top:6px" onclick="reclassApply(${f.id}, this)">应用</button>
     </div>
     <div class="${infoCls}">
       <div class="kv" style="padding:0 14px">
@@ -422,8 +422,8 @@ function cardHTML(f,showActions=true,collapsed=false){
         <b>模型信息</b><span>${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</span>
       </div>
       <div class="tag-input" style="margin:0 14px">
-        <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id})">
-        <button class="btn ghost sm" onclick="addTag(${f.id})">添加</button>
+        <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id}, this)">
+        <button class="btn ghost sm" onclick="addTag(${f.id}, this)">添加</button>
       </div>
       <div class="taglist" style="margin:6px 14px">${tags||'<span class="hint">无标签</span>'}</div>
     </div>
@@ -431,10 +431,11 @@ function cardHTML(f,showActions=true,collapsed=false){
     <div class="card-toggle" onclick="toggleInfo(event)"><span class="tri">▼</span> <span class="tog-txt">${collapsed?'展开信息':'收起信息'}</span></div>
   </div>`;
 }
-function toggleMenu(ev,id){
+function toggleMenu(ev,id,el){
   ev=ev||window.event;
   if(ev&&ev.stopPropagation)ev.stopPropagation();
-  var m=document.getElementById('ctx-'+id);
+  var card=el&&el.closest?el.closest('.card'):null;
+  var m=card?card.querySelector('.ctx'):document.getElementById('ctx-'+id);
   if(!m)return;
   var vis=m.style.display==='block';
   document.querySelectorAll('.ctx').forEach(x=>x.style.display='none');
@@ -454,25 +455,25 @@ function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
 async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
 function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>';files.forEach(f=>loadAttachments(f.id))}
-async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending()}
+async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const ids=j.files.map(f=>f.id);if(!ids.length){toast('无待整理');return}const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();toast(`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`);loadPending()}
-function toggleReclass(id){const d=$('#reclass-'+id);d.style.display=d.style.display==='none'?'block':'none';if(d.style.display==='block')loadCategoryOptions(id)}
-async function loadCategoryOptions(id){const r=await fetch('/api/categories');const j=await r.json();const opts=[...j.ip.map(x=>'IP·'+x),...Object.keys(j.func||{})];$('#rc-cat-'+id).innerHTML='<option value="">选择分类...</option>'+opts.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-async function reclassApply(id){const cat=$('#rc-cat-'+id).value;if(!cat){toast('请选择分类');return}await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});toast('分类已更新');loadPending()}
-async function llmClassify(id,btn){const currentCat=btn?(btn.getAttribute('data-cur')||''):'';const box=$('#llm-'+id);box.innerHTML='<div class="hint" style="padding:8px 0">正在调用模型分类...</div>';try{const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){const msg=j.error||'AI 分类失败';box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg);return}if(j.category===currentCat){box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span><br><div class="hint" style="margin-top:4px">与当前分类一致</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="cancelClassify(${id})">关闭</button></div></div>`;return}box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span> ${j.is_new?'<span class="pill y">新分类建议</span>':'现有分类'} · ${esc(j.reason)}<br><div style="margin-top:6px;display:flex;gap:6px"><button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new})">${j.is_new?'创建新分类':'采用'}</button><button class="btn ghost sm" onclick="cancelClassify(${id})">取消</button></div></div>`}catch(e){const msg='AI 分类请求失败：'+(e&&e.message?e.message:e);box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg)}}
+function toggleReclass(id,el){const card=el.closest('.card');const d=card.querySelector('#reclass-'+id);d.style.display=d.style.display==='none'?'block':'none';if(d.style.display==='block')loadCategoryOptions(id,card)}
+async function loadCategoryOptions(id,card){const r=await fetch('/api/categories');const j=await r.json();const opts=[...j.ip.map(x=>'IP·'+x),...Object.keys(j.func||{})];const sel=card.querySelector('#rc-cat-'+id);sel.innerHTML='<option value="">选择分类...</option>'+opts.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+async function reclassApply(id,el){const cat=el.closest('.card').querySelector('#rc-cat-'+id).value;if(!cat){toast('请选择分类');return}await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});toast('分类已更新');loadPending()}
+async function llmClassify(id,btn){const currentCat=btn?(btn.getAttribute('data-cur')||''):'';const box=btn.closest('.card').querySelector('#llm-'+id);box.innerHTML='<div class="hint" style="padding:8px 0">正在调用模型分类...</div>';try{const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){const msg=j.error||'AI 分类失败';box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg);return}if(j.category===currentCat){box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span><br><div class="hint" style="margin-top:4px">与当前分类一致</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="cancelClassify(this)">关闭</button></div></div>`;return}box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span> ${j.is_new?'<span class="pill y">新分类建议</span>':'现有分类'} · ${esc(j.reason)}<br><div style="margin-top:6px;display:flex;gap:6px"><button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new})">${j.is_new?'创建新分类':'采用'}</button><button class="btn ghost sm" onclick="cancelClassify(this)">取消</button></div></div>`}catch(e){const msg='AI 分类请求失败：'+(e&&e.message?e.message:e);box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg)}}
 async function applyCategory(id,cat,isNew){const url=isNew?'/api/confirm-new-category':'/api/recategorize';const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});const j=await r.json();toast(j.message||'已应用分类');loadPending()}
-function cancelClassify(id){const b=document.getElementById('llm-'+id);if(b)b.innerHTML=''}
-function editCategory(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='cat-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitCategory(id)}else if(e.key==='Escape'){cancelEdit(id)}};inp.onblur=function(){commitCategory(id)};el.replaceWith(inp);inp.focus();inp.select()}
-async function commitCategory(id){const inp=document.getElementById('cat-in-'+id);if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:val})});toast('分类已更新，归档路径已重算');loadPending();if(typeof search==='function')search()}
-function cancelEdit(id){const inp=document.getElementById('cat-in-'+id);if(inp)inp.onblur=null;loadPending();if(typeof search==='function')search()}
-function editAlias(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='alias-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitAlias(id)}else if(e.key==='Escape'){cancelEdit(id)}};inp.onblur=function(){commitAlias(id)};el.replaceWith(inp);inp.focus();inp.select()}
-async function commitAlias(id){const inp=document.getElementById('alias-in-'+id);if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/set-alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,alias:val})});toast('归档名已更新');loadPending();if(typeof search==='function')search()}
+function cancelClassify(btn){const b=btn&&btn.closest?btn.closest('.card').querySelector('.llm-box'):null;if(b)b.innerHTML=''}
+function editCategory(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='cat-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitCategory(id,this)}else if(e.key==='Escape'){cancelEdit(id,this)}};inp.onblur=function(){commitCategory(id,this)};el.replaceWith(inp);inp.focus();inp.select()}
+async function commitCategory(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:val})});toast('分类已更新，归档路径已重算');loadPending();if(typeof search==='function')search()}
+function cancelEdit(id,inp){if(inp)inp.onblur=null;loadPending();if(typeof search==='function')search()}
+function editAlias(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='alias-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitAlias(id,this)}else if(e.key==='Escape'){cancelEdit(id,this)}};inp.onblur=function(){commitAlias(id,this)};el.replaceWith(inp);inp.focus();inp.select()}
+async function commitAlias(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/set-alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,alias:val})});toast('归档名已更新');loadPending();if(typeof search==='function')search()}
 async function openArchive(id){const r=await fetch('/api/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('已在文件管理器中打开')}
 function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 SHA256 可复制');return}const done=()=>{toast('已复制 SHA256')};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(done).catch(()=>fallbackCopy(h,done))}else{fallbackCopy(h,done)}}
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
 
 // ===== Tag =====
-async function addTag(id){const inp=$('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';loadPending()}
+async function addTag(id,el){const inp=el.closest('.card').querySelector('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';loadPending()}
 async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});loadPending()}
 
 // ===== 缩略图/附件 =====
@@ -490,7 +491,7 @@ async function loadCatFilter(){const r=await fetch('/api/categories');const j=aw
 async function search(){$('#libWrap').innerHTML=skeletonHTML(6);const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);const r=await fetch('/api/files?'+p);const j=await r.json();renderLib(j.files)}
 let libPage=1,libPageSize=20,libAll=[];
 function renderLib(files){libAll=files||[];libPage=1;paintLib()}
-function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,false,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
+function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,true,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
 function libGo(p){if(p<1)return;libPage=p;paintLib()}
 
 // ===== 对话 =====
