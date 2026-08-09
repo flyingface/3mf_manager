@@ -6,16 +6,21 @@
 <title>3MF Manager · 3D打印文件管理器</title>
 <style>
 :root{
-  --bg:#f6f7f9; --bg2:#eef0f4; --card:#ffffff; --border:#e4e7ee; --border2:#cfd4df;
+  --bg:#f6f7f9; --bg2:#eef0f4; --bg3:#f0f2f7; --card:#ffffff; --border:#e4e7ee; --border2:#cfd4df;
   --text:#16181d; --muted:#6a7180; --tert:#98a0b0;
-  --primary:#3b6df0; --primary-d:#2b56c8; --primary-soft:#e9effd;
-  --ok:#1a9a55; --ok-soft:#e6f6ee; --warn:#c7781c; --warn-soft:#fdf3e2;
-  --err:#d64545; --err-soft:#fcecec;
+  --primary:#3b6df0; --primary-d:#2b56c8; --primary-soft:#e9effd; --primary-border:#bcd0fb;
+  --ok:#1a9a55; --ok-soft:#e6f6ee; --ok-border:#bfe3d0;
+  --warn:#c7781c; --warn-soft:#fdf3e2; --warn-border:#f0d9a8;
+  --err:#d64545; --err-soft:#fcecec; --err-border:#f2bcbc;
+  --info:#3b6df0; --info-soft:#e9effd; --info-border:#bcd0fb;
   --r-sm:8px; --r-md:12px; --r-lg:16px;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
+  --shadow-sm:0 1px 2px rgba(16,24,40,.05);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;font-size:13px}
+::selection{background:var(--primary-soft)}
+a{color:var(--primary);text-decoration:none}
 .app{display:flex;min-height:100vh}
 /* ---- 左导航 ---- */
 .nav{width:64px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;position:sticky;top:0;height:100vh;gap:6px}
@@ -38,17 +43,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;margin-bottom:18px;box-shadow:var(--shadow)}
 .panel-h{font-size:15px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 /* ---- 控件 ---- */
-.btn{border:none;border-radius:var(--r-sm);padding:9px 15px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:6px}
-.btn.p{background:var(--primary);color:#fff}.btn.p:hover{background:var(--primary-d)}
+.btn{border:none;border-radius:var(--r-sm);padding:9px 15px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s,transform .05s,box-shadow .15s;display:inline-flex;align-items:center;gap:6px}
+.btn:active{transform:scale(.97)}
+.btn.p{background:var(--primary);color:#fff}.btn.p:hover{background:var(--primary-d);box-shadow:0 2px 8px rgba(59,109,240,.28)}
 .btn.ok{background:var(--ok);color:#fff}.btn.ok:hover{filter:brightness(1.05)}
-.btn.ghost{background:#fff;border:1px solid var(--border2);color:var(--text)}.btn.ghost:hover{background:var(--bg2)}
-.btn.dg{background:#fff;border:1px solid var(--border2);color:var(--err)}.btn.dg:hover{background:var(--err-soft)}
+.btn.ghost{background:#fff;border:1px solid var(--border2);color:var(--text)}.btn.ghost:hover{background:var(--bg2);border-color:var(--border)}
+.btn.dg{background:#fff;border:1px solid var(--border2);color:var(--err)}.btn.dg:hover{background:var(--err-soft);border-color:var(--err-border)}
 .btn.sm{padding:5px 11px;font-size:12px}
-.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn[disabled]{opacity:.5;cursor:not-allowed;transform:none}
 input[type=text],select,textarea{background:#fff;border:1px solid var(--border2);border-radius:var(--r-sm);padding:9px 12px;font-size:13px;color:var(--text);transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,109,240,.12)}
+input::placeholder{color:var(--tert)}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
 .hint{font-size:12px;color:var(--muted)}
+/* ---- 加载态（骨架屏） ---- */
+.skel{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.skel .sk-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;padding:10px}
+.skel .sk-bg{background:linear-gradient(100deg,var(--bg2) 40%,var(--bg) 50%,var(--bg2) 60%);background-size:200% 100%;animation:skel 1.2s infinite}
+@keyframes skel{0%{background-position:120% 0}100%{background-position:-120% 0}}
+.sk-img{aspect-ratio:1;border-radius:var(--r-md);margin-bottom:10px}
+.sk-line{height:12px;border-radius:6px;margin:6px 0}
+.sk-line.w60{width:60%}.sk-line.w80{width:80%}.sk-line.w40{width:40%}
+/* ---- 空状态 ---- */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:46px 20px;text-align:center;color:var(--muted)}
+.empty .ic{width:56px;height:56px;border-radius:16px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--tert);margin-bottom:14px}
+.empty .t{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px}
+.empty .s{font-size:12px;color:var(--muted);margin-bottom:16px;max-width:300px;line-height:1.6}
 /* ---- 上传 ---- */
 .drop{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--border2);border-radius:var(--r-lg);padding:32px;text-align:center;color:var(--muted);cursor:pointer;background:var(--bg);transition:.15s}
 .drop:hover,.drop.drag{border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
@@ -89,7 +109,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .tag-input{display:flex;gap:6px;margin-top:8px}
 .alias-input{width:100%;margin-top:6px;font-size:13px}
-.empty-state{text-align:center;color:var(--muted);padding:40px 0}
 /* ---- 查看器 ---- */
 .viewer-mask{position:fixed;inset:0;background:rgba(15,23,42,.72);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(3px)}
 .viewer-mask.show{display:flex}
@@ -128,7 +147,39 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:#1c2330;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;z-index:300;opacity:0;transition:.25s;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .viewer-head .btn,.pager .btn{border:1px solid var(--border2);background:#fff;color:var(--text);border-radius:var(--r-sm);padding:5px 10px;font-size:12px;cursor:pointer}
-@media(max-width:720px){.nav{width:52px}.main{padding:16px 14px 60px}}
+/* ---- 响应式 ---- */
+@media(max-width:1024px){
+  .grid,.skel{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+}
+@media(max-width:860px){
+  .grid,.skel{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+  .main{padding:16px 16px 60px}
+  .dash-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+}
+@media(max-width:720px){
+  .nav{width:56px}
+  .nav .ni{width:44px;height:44px}
+  .main{padding:14px 12px 60px}
+  .grid,.skel{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+  .topbar{flex-direction:column;align-items:flex-start;gap:12px}
+  .statrow{width:100%;justify-content:space-between}
+  .stat{flex:1;min-width:0;padding:8px 6px}
+  .form-row{grid-template-columns:1fr;gap:4px}
+  .form-row label{text-align:left}
+  .toolbar input[type=text]{min-width:0}
+  .panel{padding:14px}
+  .card-body{padding:0 12px 8px}
+  .kv{grid-template-columns:56px 1fr}
+  .actions{flex-wrap:wrap}
+  .card-toggle,.actions .btn{padding:8px 12px} /* 触控目标放大 */
+  .nav .ni .bd{width:10px;height:10px}
+}
+@media(max-width:420px){
+  .grid,.skel{grid-template-columns:1fr}
+  .stat{font-size:11px}
+  .nav{width:48px}
+  .nav .ni{width:40px;height:40px}
+}
 </style>
 </head>
 <body>
@@ -341,8 +392,10 @@ function toggleInfo(ev){
 }
 
 // ===== 待整理 =====
-async function loadPending(){const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
-function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML='<div class="empty-state">暂无待整理，请先上传</div>';return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>'}
+function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<div class="sk-card"><div class="sk-bg sk-img"></div><div class="sk-bg sk-line w80"></div><div class="sk-bg sk-line w60"></div><div class="sk-bg sk-line w40"></div></div>`}s+='</div>';return s}
+function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
+async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
+function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议别名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>'}
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const ids=j.files.map(f=>f.id);if(!ids.length){toast('无待整理');return}const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();toast(`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`);loadPending()}
 function toggleReclass(id){const d=$('#reclass-'+id);d.style.display=d.style.display==='none'?'block':'none';if(d.style.display==='block')loadCategoryOptions(id)}
@@ -365,17 +418,18 @@ async function delFile(id){if(!confirm('从索引移除（不删磁盘文件）�
 // ===== 模型库（分页） =====
 let _dt;function debouncedSearch(){clearTimeout(_dt);_dt=setTimeout(search,300)}
 async function loadCatFilter(){const r=await fetch('/api/categories');const j=await r.json();const fr=await fetch('/api/files');const fj=await fr.json();const uniq=new Set();fj.files.forEach(f=>{if(f.category)uniq.add(f.category.split(' · ')[0])});$('#f-cat').innerHTML='<option value="">全部分类</option>'+[...uniq].sort().map(c=>`<option>${esc(c)}</option>`).join('')}
-async function search(){const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);const r=await fetch('/api/files?'+p);const j=await r.json();renderLib(j.files)}
+async function search(){$('#libWrap').innerHTML=skeletonHTML(6);const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);const r=await fetch('/api/files?'+p);const j=await r.json();renderLib(j.files)}
 let libPage=1,libPageSize=20,libAll=[];
 function renderLib(files){libAll=files||[];libPage=1;paintLib()}
-function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML='<div class="empty-state">无匹配文件</div>';return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,false,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
+function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,false,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
 function libGo(p){if(p<1)return;libPage=p;paintLib()}
 
 // ===== 对话 =====
 function addMsg(role,text){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
 let sessionId='s'+Date.now();
 async function sendChat(){const msg=$('#chatIn').value.trim();if(!msg)return;$('#chatIn').value='';addMsg('user',msg);const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble">思考中...</div>';$('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});const j=await r.json();if(!r.ok)throw new Error(j.error);d.querySelector('.bubble').textContent=j.reply}catch(e){d.querySelector('.bubble').textContent='❌ '+e.message}}
-function clearChat(){$('#chatMsgs').innerHTML='';sessionId='s'+Date.now()}
+function clearChat(){$('#chatMsgs').innerHTML='';sessionId='s'+Date.now();chatWelcome()}
+function chatWelcome(){if($('#chatMsgs').children.length)return;const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble">你好，我是你的 3MF 模型库助手。可以用自然语言问我，比如：<br>· 帮我找所有高达相关模型<br>· 有哪些收纳类的文件？<br>· 列出待整理的文件</div>';$('#chatMsgs').appendChild(d)}
 
 // ===== 仪表盘 =====
 async function loadDash(){const r=await fetch('/api/stats');const j=await r.json();$('#dashGrid').innerHTML=`
@@ -409,7 +463,7 @@ async function saveConfig(){const fd={llm:{base_url:$('#cfg-url').value.trim(),m
 async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><div class="n">${j.total}</div><div class="l">全部</div></div><div class="stat"><div class="n">${j.pending}</div><div class="l">待整理</div></div><div class="stat"><div class="n">${j.applied}</div><div class="l">已归档</div></div>`}
 
 // init
-(async function(){renderNav();await loadCatFilter();await loadStats();loadDash();loadPending()})();
+(async function(){renderNav();await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
 </script>
 </body>
 </html>
