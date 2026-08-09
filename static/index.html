@@ -81,19 +81,33 @@ input::placeholder{color:var(--tert)}
 .card.pending{border-top:3px solid var(--warn)}
 .card.applied{border-top:3px solid var(--ok)}
 .card.dup{border:1.5px solid var(--err);box-shadow:0 0 0 2px rgba(214,69,69,.12)}
-.th-wrap{position:relative;padding:10px}
-.thumb{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--r-md);background:var(--bg2);display:block;cursor:zoom-in}
-.thumb.empty{display:flex;align-items:center;justify-content:center;color:var(--tert);font-size:13px}
-.th-badge{position:absolute;top:16px;left:16px}
-.card-body{padding:0 14px 8px}
-.cname{font-weight:500;font-size:14px;margin-bottom:2px;word-break:break-all}
-.path{font-size:11px;color:var(--muted);word-break:break-all;margin:4px 0 8px;background:var(--bg);padding:5px 7px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ---- 横向卡片（对齐设计稿） ---- */
+.card-hd{display:flex;gap:12px;padding:12px;align-items:stretch}
+.card-hd .th{width:84px;height:84px;border-radius:var(--r-md);background:var(--bg2);object-fit:cover;cursor:zoom-in;flex-shrink:0}
+.card-hd .th.empty{display:flex;align-items:center;justify-content:center;color:var(--tert);font-size:20px}
+.card-hd .cb{flex:1;min-width:0;display:flex;flex-direction:column}
+.card-hd .rt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.card-hd .rt .cname{font-weight:500;font-size:14px;word-break:break-all;flex:1;min-width:0}
+.card-hd .pill{margin:0}
 .pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d);margin:2px 4px 2px 0}
 .pill.cat{background:var(--ok-soft);color:var(--ok)}
 .pill.hash{font-family:ui-monospace,Menlo,monospace;background:var(--bg2);color:var(--muted)}
 .pill.y{background:var(--warn-soft);color:var(--warn)}
 .pill.r{background:var(--err-soft);color:var(--err)}
 .pill.clickable{cursor:pointer}
+.pillgrp{display:flex;gap:4px;flex-wrap:wrap;margin:7px 0}
+.card-hd .meta{font-size:11px;color:var(--tert);margin-top:auto;line-height:1.5}
+.card-hd .meta .pid{font-family:ui-monospace,Menlo,monospace}
+/* ---- 上下文菜单 ---- */
+.dotm{width:28px;height:28px;border-radius:8px;border:1px solid var(--border2);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;color:var(--muted);flex-shrink:0;transition:.15s}
+.dotm:hover{background:var(--bg2);color:var(--text)}
+.ctx{position:absolute;top:42px;right:10px;background:var(--card);border:1px solid var(--border2);border-radius:10px;padding:4px;min-width:158px;z-index:30;box-shadow:0 8px 24px rgba(16,24,40,.14)}
+.ctx .mi{font-size:12px;padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.ctx .mi:hover{background:var(--bg2)}
+.ctx .mi.dg{color:var(--err)}
+.ctx .mi.dg:hover{background:var(--err-soft)}
+.path{font-size:11px;color:var(--muted);word-break:break-all;margin:4px 0 8px;background:var(--bg);padding:5px 7px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-foot{padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:6px}
 .card-info{overflow:hidden;transition:max-height .25s ease,opacity .2s ease}
 .card-info.collapsed{max-height:0!important;opacity:0}
 .kv{font-size:12px;color:var(--muted);display:grid;grid-template-columns:64px 1fr;gap:3px 8px;padding:4px 0}
@@ -331,58 +345,76 @@ async function uploadFiles(files){
   loadStats();loadPending();
 }
 
-// ===== 卡片渲染 =====
+// ===== 卡片渲染（横向布局，对齐设计稿） =====
 function cardHTML(f,showActions=true,collapsed=false){
   const plates=(f.plate_imgs||'').split(',').filter(Boolean);
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
   const infoCls=collapsed?'card-info collapsed':'card-info';
   const thumb=f.thumb
-    ?`<img class="thumb" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="点击查看摆盘图">`
-    :`<div class="thumb empty">未上传缩略图</div>`;
+    ?`<img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="点击查看摆盘图">`
+    :`<div class="th empty">未上传</div>`;
+  const catPill=f.category?`<span class="pill cat">${esc(f.category)}</span>`:'';
+  const metaPills=`
+    ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
+    ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
+    <span class="pill">${f.size_mb}MB</span>`;
+  const stPill=f.status==='pending'?`<span class="pill y">待整理</span>`:f.status==='applied'?`<span class="pill" style="background:var(--ok-soft);color:var(--ok)">已归档</span>`:'';
   return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
-    <div class="th-wrap">
-      ${f.status==='pending'?'<span class="pill y th-badge">待整理</span>':''}
+    <div class="card-hd">
       ${thumb}
-    </div>
-    <div class="card-body">
-      <div class="cname">${esc(f.filename)}</div>
-      <div class="path" title="${esc(f.path)}">${esc(f.path)}</div>
-      <div>
-        <span class="pill cat">${esc(f.category)}</span>
-        ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
-        ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
-        <span class="pill">${f.size_mb}MB</span>
+      <div class="cb">
+        <div class="rt">
+          <div class="cname">${esc(f.filename)}</div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            ${stPill}
+            <div class="dotm" onclick="toggleMenu(event,${f.id})">⋯</div>
+          </div>
+        </div>
+        <div class="pillgrp">${catPill}${metaPills}</div>
+        <div class="meta"><span class="pid">${esc(f.design_id||'—')}</span> · ${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</div>
       </div>
+    </div>
+    <div class="ctx" id="ctx-${f.id}" style="display:none">
+      ${showActions?`<div class="mi" onclick="applyOne(${f.id})">归档到分类</div>`:''}
+      <div class="mi" onclick="llmClassify(${f.id})">🤖 模型分类</div>
+      <div class="mi" onclick="openViewer(${f.id})">查看摆盘图</div>
+      <div class="mi" onclick="toggleReclass(${f.id})">手动改分类</div>
+      <div class="mi" onclick="uploadThumb(${f.id})">上传缩略图</div>
+      <div class="mi" onclick="attachFile(${f.id})">关联附件</div>
+      <div class="mi dg" onclick="delFile(${f.id})">从索引移除</div>
+    </div>
+    <div id="llm-${f.id}"></div>
+    <div id="reclass-${f.id}" style="display:none;padding:0 14px">
+      <select id="rc-cat-${f.id}" class="alias-input"></select>
+      <button class="btn ok sm" style="margin-top:6px" onclick="reclassApply(${f.id})">应用</button>
     </div>
     <div class="${infoCls}">
-      <div class="kv">
+      <div class="kv" style="padding:0 14px">
         <b>目标</b><span>${esc(f.target_dir||'—')}</span>
         <b>别名</b><span>${esc(f.alias||'—')}</span>
-        <b>设计ID</b><span class="pill hash">${esc(f.design_id||'—')}</span>
         <b>SHA256</b><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span>
-        <b>几何</b><span>${f.vertices}顶/${f.triangles}面</span>
       </div>
-      <div class="tag-input">
+      <div class="tag-input" style="margin:0 14px">
         <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id})">
         <button class="btn ghost sm" onclick="addTag(${f.id})">添加</button>
       </div>
-      <div class="taglist">${tags||'<span class="hint">无标签</span>'}</div>
-      <div class="attach-list" id="att-${f.id}"></div>
+      <div class="taglist" style="margin:6px 14px">${tags||'<span class="hint">无标签</span>'}</div>
+      <div class="attach-list" id="att-${f.id}" style="margin:0 14px 6px"></div>
     </div>
-    ${showActions?`<div class="actions">
-      <button class="btn ok sm" onclick="applyOne(${f.id})">归档</button>
-      <button class="btn ghost sm" onclick="llmClassify(${f.id})">模型分类</button>
-      <button class="btn ghost sm" onclick="toggleReclass(${f.id})">改分类</button>
-      <button class="btn ghost sm" onclick="uploadThumb(${f.id})">缩略图</button>
-      <button class="btn ghost sm" onclick="attachFile(${f.id})">附件</button>
-      <button class="btn dg sm" onclick="delFile(${f.id})">移除</button>
-    </div><div id="llm-${f.id}"></div><div id="reclass-${f.id}" style="display:none;padding:0 14px">
-      <select id="rc-cat-${f.id}" class="alias-input"></select>
-      <button class="btn ok sm" style="margin-top:6px" onclick="reclassApply(${f.id})">应用</button>
-    </div>`:''}
+    ${showActions?`<div class="card-foot"><button class="btn ok sm" onclick="applyOne(${f.id})">归档到分类</button></div>`:''}
     <div class="card-toggle" onclick="toggleInfo(event)"><span class="tri">▼</span> <span class="tog-txt">${collapsed?'展开信息':'收起信息'}</span></div>
   </div>`;
 }
+function toggleMenu(ev,id){
+  ev=ev||window.event;
+  if(ev&&ev.stopPropagation)ev.stopPropagation();
+  var m=document.getElementById('ctx-'+id);
+  if(!m)return;
+  var vis=m.style.display==='block';
+  document.querySelectorAll('.ctx').forEach(x=>x.style.display='none');
+  m.style.display=vis?'none':'block';
+}
+document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.ctx')&&!e.target.closest('.dotm')){document.querySelectorAll('.ctx').forEach(x=>x.style.display='none')}});
 function toggleInfo(ev){
   ev=ev||window.event;var btn=ev.currentTarget||ev.target;
   if(!btn||!btn.closest)return;
