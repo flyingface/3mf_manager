@@ -107,7 +107,6 @@ input::placeholder{color:var(--tert)}
 .ctx .mi.dg{color:var(--err)}
 .ctx .mi.dg:hover{background:var(--err-soft)}
 .path{font-size:11px;color:var(--muted);word-break:break-all;margin:4px 0 8px;background:var(--bg);padding:5px 7px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card-foot{padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:6px}
 .card-info{overflow:hidden;transition:max-height .25s ease,opacity .2s ease}
 .card-info.collapsed{max-height:0!important;opacity:0}
 .kv{font-size:12px;color:var(--muted);display:grid;grid-template-columns:64px 1fr;gap:3px 8px;padding:4px 0}
@@ -369,6 +368,7 @@ function cardHTML(f,showActions=true,collapsed=false){
           <div class="cname" title="${esc(f.filename)}">${esc(headTitle)}</div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
             ${stPill}
+            ${showActions?`<button class="btn ok sm" onclick="applyOne(${f.id})" title="归档到分类">归档</button>`:''}
             <div class="dotm" onclick="toggleMenu(event,${f.id})">⋯</div>
           </div>
         </div>
@@ -377,7 +377,6 @@ function cardHTML(f,showActions=true,collapsed=false){
       </div>
     </div>
     <div class="ctx" id="ctx-${f.id}" style="display:none">
-      ${showActions?`<div class="mi" onclick="applyOne(${f.id})">归档到分类</div>`:''}
       <div class="mi" onclick="llmClassify(${f.id})">🤖 模型分类</div>
       <div class="mi" onclick="openViewer(${f.id})">查看摆盘图</div>
       <div class="mi" onclick="toggleReclass(${f.id})">手动改分类</div>
@@ -404,7 +403,6 @@ function cardHTML(f,showActions=true,collapsed=false){
       <div class="taglist" style="margin:6px 14px">${tags||'<span class="hint">无标签</span>'}</div>
       <div class="attach-list" id="att-${f.id}" style="margin:0 14px 6px"></div>
     </div>
-    ${showActions?`<div class="card-foot"><button class="btn ok sm" onclick="applyOne(${f.id})">归档到分类</button></div>`:''}
     <div class="card-toggle" onclick="toggleInfo(event)"><span class="tri">▼</span> <span class="tog-txt">${collapsed?'展开信息':'收起信息'}</span></div>
   </div>`;
 }
