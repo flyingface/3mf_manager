@@ -129,6 +129,12 @@ input::placeholder{color:var(--tert)}
 .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .tag-input{display:flex;gap:6px;margin-top:8px}
 .alias-input{width:100%;margin-top:6px;font-size:13px}
+/* ---- 归档路径选择器 ---- */
+.target-picker{border-top:1px solid var(--border);padding:10px 14px;background:var(--bg2)}
+.target-picker .tp-head{font-size:12px;color:var(--muted);margin-bottom:6px}
+.target-picker .tp-sel{width:100%;margin-top:0}
+.target-picker .cat-input{width:100%;margin-top:6px;box-sizing:border-box}
+.target-picker .tp-actions{display:flex;gap:8px;margin-top:8px}
 /* ---- 查看器 ---- */
 .viewer-mask{position:fixed;inset:0;background:rgba(15,23,42,.72);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(3px)}
 .viewer-mask.show{display:flex}
@@ -513,8 +519,44 @@ async function commitCategory(id,inp){if(!inp||inp.dataset.done)return;inp.datas
 function cancelEdit(id,inp){if(inp)inp.onblur=null;loadPending();if(typeof search==='function')search()}
 function editAlias(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='alias-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitAlias(id,this)}else if(e.key==='Escape'){cancelEdit(id,this)}};inp.onblur=function(){commitAlias(id,this)};el.replaceWith(inp);inp.focus();inp.select()}
 async function commitAlias(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/set-alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,alias:val})});toast('归档名已更新');loadPending();if(typeof search==='function')search()}
-function editTargetDir(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='target-in-'+id;inp.value=cur;inp.placeholder='例如 IP·高达/xx 或 xx/yy';inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitTargetDir(id,this)}else if(e.key==='Escape'){cancelEdit(id,this)}};inp.onblur=function(){commitTargetDir(id,this)};el.replaceWith(inp);inp.focus();inp.select()}
-async function commitTargetDir(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();const r=await fetch('/api/set-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,target_dir:val})});const j=await r.json();if(!r.ok){toast(j.error||'设置归档路径失败');loadPending();return}toast('归档路径已更新');loadPending();if(typeof search==='function')search()}
+function editTargetDir(id,el){
+  const card=el.closest('.card'); if(!card)return;
+  const cur=(el.getAttribute('data-cur')||'').trim();
+  if(card.querySelector('#tgt-picker-'+id))return; // 已打开
+  const p=document.createElement('div');
+  p.className='target-picker'; p.id='tgt-picker-'+id;
+  p.innerHTML=`<div class="tp-head">归档路径：从已有目录选择，或在其下继续输入子路径</div>
+    <select id="tp-sel-${id}" class="alias-input tp-sel" title="选择已存在的目录作为基础"></select>
+    <input id="tp-in-${id}" class="cat-input" value="${esc(cur)}" placeholder="在所选路径下继续输入子路径（如 /新系列/xx）">
+    <div class="tp-actions">
+      <button class="btn ok sm" onclick="commitTargetDir(${id})">应用</button>
+      <button class="btn ghost sm" onclick="cancelTargetPicker(${id})">取消</button>
+    </div>`;
+  card.appendChild(p);
+  loadTargetDirs(id, cur);
+}
+async function loadTargetDirs(id, cur){
+  let dirs=[];
+  try{const r=await fetch('/api/dirs');const j=await r.json();dirs=j.dirs||[]}catch(e){dirs=[]}
+  const sel=document.getElementById('tp-sel-'+id); if(!sel)return;
+  sel.innerHTML='<option value="">（模型根目录 / 根）</option>'+dirs.map(d=>`<option value="${esc(d.path)}">${esc(d.path)}</option>`).join('');
+  sel.onchange=function(){
+    const base=this.value.trim(); const inp=document.getElementById('tp-in-'+id); if(!inp)return;
+    // 选择已有目录后：基础路径 + 斜杠，用户可继续输入子路径
+    inp.value = base ? base+'/' : '';
+    inp.focus();
+  };
+}
+function cancelTargetPicker(id){const el=document.getElementById('tgt-picker-'+id);if(el)el.remove()}
+async function commitTargetDir(id){
+  const inp=document.getElementById('tp-in-'+id); if(!inp){return}
+  const val=inp.value.trim();
+  const r=await fetch('/api/set-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,target_dir:val})});
+  const j=await r.json();
+  cancelTargetPicker(id);
+  if(!r.ok){toast(j.error||'设置归档路径失败');loadPending();return}
+  toast('归档路径已更新');loadPending();if(typeof search==='function')search();
+}
 async function openArchive(id){const r=await fetch('/api/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('已在文件管理器中打开')}
 function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 SHA256 可复制');return}const done=()=>{toast('已复制 SHA256')};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(done).catch(()=>fallbackCopy(h,done))}else{fallbackCopy(h,done)}}
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}

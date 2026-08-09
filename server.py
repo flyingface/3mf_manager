@@ -527,6 +527,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_get_config()
         if p == "/api/attachments":
             return self._api_attachments(parse_qs(u.query))
+        if p == "/api/dirs":
+            return self._api_dirs()
         if p.startswith("/thumbs/"):
             return self._serve_file(os.path.join(THUMB_DIR, p[len("/thumbs/"):]))
         if p.startswith("/attachments/"):
@@ -1017,6 +1019,27 @@ class Handler(BaseHTTPRequestHandler):
         conn.execute("UPDATE files SET target_dir=? WHERE id=?", (target, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "target_dir": target})
+
+    def _api_dirs(self):
+        """返回模型根目录下所有已存在的目录（相对路径，按层级排序），供归档路径选择器使用。
+
+        排除 00_待整理 与隐藏项；每个目录也返回它在磁盘上是否真实存在。
+        """
+        dirs = []
+        root_abs = LIBRARY_ROOT
+        # 预置一个空串代表根目录本身
+        if os.path.isdir(root_abs):
+            for base, subdirs, _files in os.walk(root_abs):
+                # 跳过 00_待整理 与隐藏目录
+                subdirs[:] = [d for d in subdirs if not d.startswith(".") and d != "00_待整理"]
+                for d in subdirs:
+                    full = os.path.join(base, d)
+                    rel = os.path.relpath(full, root_abs)
+                    if rel.startswith("."):
+                        continue
+                    dirs.append({"path": rel.replace(os.sep, "/"), "exists": True})
+        dirs.sort(key=lambda x: (x["path"].count("/"), x["path"]))
+        self._send(200, {"dirs": dirs, "root": LIBRARY_ROOT})
 
     def _api_set_tags(self, data):
         fid = data.get("id"); tags = data.get("tags", [])
