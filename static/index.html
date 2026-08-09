@@ -6,266 +6,260 @@
 <title>3MF Manager · 3D打印文件管理器</title>
 <style>
 :root{
-  --bg:#f5f6f8; --card:#fff; --border:#e3e6eb; --text:#1a1d24; --muted:#6b7280;
-  --primary:#3b82f6; --primary-d:#2563eb; --ok:#16a34a; --warn:#d97706; --err:#dc2626;
-  --chip:#eef2ff; --radius:12px; --shadow:0 1px 3px rgba(16,24,40,.08);
+  --bg:#f6f7f9; --bg2:#eef0f4; --card:#ffffff; --border:#e4e7ee; --border2:#cfd4df;
+  --text:#16181d; --muted:#6a7180; --tert:#98a0b0;
+  --primary:#3b6df0; --primary-d:#2b56c8; --primary-soft:#e9effd;
+  --ok:#1a9a55; --ok-soft:#e6f6ee; --warn:#c7781c; --warn-soft:#fdf3e2;
+  --err:#d64545; --err-soft:#fcecec;
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
-header{background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;box-shadow:var(--shadow)}
-.header-inner{max-width:1280px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px}
-.logo .cube{width:26px;height:26px;background:linear-gradient(135deg,var(--primary),#8b5cf6);border-radius:7px;display:grid;place-items:center;color:#fff;font-size:13px}
-.tabs{display:flex;gap:4px;background:#eef0f3;padding:4px;border-radius:10px;flex-wrap:wrap}
-.tabs button{border:0;background:transparent;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:14px;color:var(--muted)}
-.tabs button.active{background:#fff;color:var(--primary);font-weight:600;box-shadow:var(--shadow)}
-.stats{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-.stat{background:#f0f3f8;padding:5px 10px;border-radius:8px;font-size:12px;text-align:center}
-.stat b{display:block;font-size:15px;color:var(--primary)}
-main{max-width:1280px;margin:0 auto;padding:22px 20px 70px}
-.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:18px;box-shadow:var(--shadow)}
-.panel h2{font-size:15px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-.panel h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--primary)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
-.card{border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:#fff;position:relative}
-.card.pending{border-left:3px solid var(--warn)}.card.applied{border-left:3px solid var(--ok)}
-.card.dup{border:2px solid var(--err);box-shadow:0 0 0 2px rgba(220,38,38,.12)}
-.thumb{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#eef0f3;margin-bottom:10px;display:block}
-.thumb.empty{display:flex;align-items:center;justify-content:center;color:#9aa3af;font-size:13px}
-.cname{font-weight:600;font-size:15px;margin-bottom:2px;word-break:break-all}
-.path{font-size:11px;color:var(--muted);word-break:break-all;margin-bottom:8px;background:#f6f8fa;padding:5px 7px;border-radius:6px}
-.kv{font-size:12px;color:var(--muted);display:grid;grid-template-columns:64px 1fr;gap:2px 8px;margin-bottom:8px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+.app{display:flex;min-height:100vh}
+/* ---- 左导航 ---- */
+.nav{width:64px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;position:sticky;top:0;height:100vh;gap:6px}
+.nav .logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#3b6df0,#7b4ff0);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:500;margin-bottom:10px}
+.nav .ni{width:42px;height:42px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--muted);font-size:16px;transition:.15s;border:none;background:transparent;position:relative}
+.nav .ni .lb{font-size:9px;font-weight:500}
+.nav .ni:hover{background:var(--bg2);color:var(--text)}
+.nav .ni.active{background:var(--primary-soft);color:var(--primary)}
+.nav .ni .bd{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--warn);border:1.5px solid #fff}
+/* ---- 主区 ---- */
+.main{flex:1;min-width:0;padding:22px 26px 60px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.tb-left{display:flex;align-items:center;gap:12px}
+.tb-title{font-size:19px;font-weight:500}
+.tb-sub{font-size:12px;color:var(--muted)}
+.statrow{display:flex;gap:8px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 14px;text-align:center;min-width:74px}
+.stat .n{font-size:17px;font-weight:500;color:var(--text)}
+.stat .l{font-size:11px;color:var(--muted)}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;margin-bottom:18px;box-shadow:var(--shadow)}
+.panel-h{font-size:15px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+/* ---- 控件 ---- */
+.btn{border:none;border-radius:var(--r-sm);padding:9px 15px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn.p{background:var(--primary);color:#fff}.btn.p:hover{background:var(--primary-d)}
+.btn.ok{background:var(--ok);color:#fff}.btn.ok:hover{filter:brightness(1.05)}
+.btn.ghost{background:#fff;border:1px solid var(--border2);color:var(--text)}.btn.ghost:hover{background:var(--bg2)}
+.btn.dg{background:#fff;border:1px solid var(--border2);color:var(--err)}.btn.dg:hover{background:var(--err-soft)}
+.btn.sm{padding:5px 11px;font-size:12px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+input[type=text],select,textarea{background:#fff;border:1px solid var(--border2);border-radius:var(--r-sm);padding:9px 12px;font-size:13px;color:var(--text);transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,109,240,.12)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.hint{font-size:12px;color:var(--muted)}
+/* ---- 上传 ---- */
+.drop{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--border2);border-radius:var(--r-lg);padding:32px;text-align:center;color:var(--muted);cursor:pointer;background:var(--bg);transition:.15s}
+.drop:hover,.drop.drag{border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
+.drop input{display:none}
+.drop .big{font-size:15px;font-weight:500;margin-bottom:4px;color:var(--text)}
+/* ---- 网格与卡片 ---- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s;position:relative}
+.card:hover{box-shadow:0 6px 24px rgba(16,24,40,.1)}
+.card.pending{border-top:3px solid var(--warn)}
+.card.applied{border-top:3px solid var(--ok)}
+.card.dup{border:1.5px solid var(--err);box-shadow:0 0 0 2px rgba(214,69,69,.12)}
+.th-wrap{position:relative;padding:10px}
+.thumb{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--r-md);background:var(--bg2);display:block;cursor:zoom-in}
+.thumb.empty{display:flex;align-items:center;justify-content:center;color:var(--tert);font-size:13px}
+.th-badge{position:absolute;top:16px;left:16px}
+.card-body{padding:0 14px 8px}
+.cname{font-weight:500;font-size:14px;margin-bottom:2px;word-break:break-all}
+.path{font-size:11px;color:var(--muted);word-break:break-all;margin:4px 0 8px;background:var(--bg);padding:5px 7px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d);margin:2px 4px 2px 0}
+.pill.cat{background:var(--ok-soft);color:var(--ok)}
+.pill.hash{font-family:ui-monospace,Menlo,monospace;background:var(--bg2);color:var(--muted)}
+.pill.y{background:var(--warn-soft);color:var(--warn)}
+.pill.r{background:var(--err-soft);color:var(--err)}
+.pill.clickable{cursor:pointer}
 .card-info{overflow:hidden;transition:max-height .25s ease,opacity .2s ease}
-.card-info.collapsed{max-height:0!important;opacity:0;margin-bottom:0!important}
-.card-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;padding:4px 0;border-radius:6px}
+.card-info.collapsed{max-height:0!important;opacity:0}
+.kv{font-size:12px;color:var(--muted);display:grid;grid-template-columns:64px 1fr;gap:3px 8px;padding:4px 0}
+.kv b{font-weight:500;color:var(--text)}
+.card-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;padding:8px 14px;border-top:1px solid var(--border);transition:color .15s}
 .card-toggle:hover{color:var(--primary)}
 .card-toggle .tri{display:inline-block;transition:transform .2s;font-size:10px}
 .card-info.collapsed+.card-toggle .tri{transform:rotate(-90deg)}
-.kv b{font-weight:500;color:var(--text)}
-.badge{display:inline-block;background:var(--chip);color:var(--primary-d);padding:2px 8px;border-radius:20px;font-size:11px;margin:2px 4px 2px 0}
-.badge.cat{background:#ecfdf5;color:#047857}
-.badge.hash{font-family:ui-monospace,Menlo,monospace;background:#f1f5f9;color:#475569}
-.badge.warn{background:#fef3c7;color:#92400e}
-.badge.err{background:#fee2e2;color:#991b1b}
-.actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
-.btn{border:0;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;font-weight:500;transition:.15s}
-.btn.primary{background:var(--primary);color:#fff}.btn.primary:hover{background:var(--primary-d)}
-.btn.ok{background:var(--ok);color:#fff}.btn.ok:hover{filter:brightness(1.08)}
-.btn.ghost{background:#fff;border:1px solid var(--border);color:var(--text)}.btn.ghost:hover{background:#f4f6f8}
-.btn.sm{padding:4px 9px;font-size:12px}
-.btn[disabled]{opacity:.5;cursor:not-allowed}
-input[type=text],select,textarea{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--text)}
-input[type=text]:focus,select:focus,textarea:focus{outline:2px solid var(--primary);border-color:transparent}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
-.drop{display:flex;align-items:center;justify-content:center;border:2px dashed #c9d2df;border-radius:var(--radius);padding:30px;text-align:center;color:var(--muted);cursor:pointer;background:#fafbfc}
-.drop:hover{border-color:var(--primary);background:#f0f6ff;color:var(--primary)}
-.drop input{display:none}
-.hint{font-size:12px;color:var(--muted);margin-top:6px}
-.tag{background:#f0f3ff;border:1px solid #dbe2ff;color:#3b5bd0;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-flex;align-items:center;gap:5px}
-.tag .x{cursor:pointer;color:#7a85ad;font-weight:700}.tag .x:hover{color:var(--err)}
+.actions{display:flex;gap:6px;padding:8px 14px 12px;flex-wrap:wrap}
+/* ---- tag ---- */
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);color:var(--muted)}
+.tag .x{cursor:pointer;color:var(--tert);font-weight:500}.tag .x:hover{color:var(--err)}
 .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tag-input{display:flex;gap:6px;margin-top:8px}
 .alias-input{width:100%;margin-top:6px;font-size:13px}
-.empty-state{text-align:center;color:var(--muted);padding:36px 0}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:.3s;pointer-events:none}
-.toast.show{opacity:1}
-/* 摆盘图查看器 */
-.viewer-mask{position:fixed;inset:0;background:rgba(15,23,42,.7);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(2px)}
+.empty-state{text-align:center;color:var(--muted);padding:40px 0}
+/* ---- 查看器 ---- */
+.viewer-mask{position:fixed;inset:0;background:rgba(15,23,42,.72);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(3px)}
 .viewer-mask.show{display:flex}
-.viewer{background:#fff;border-radius:14px;max-width:90vw;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column}
-.viewer-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)}
-.viewer-head #viewerTitle{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.viewer{background:#fff;border-radius:var(--r-lg);max-width:92vw;max-height:92vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column}
+.viewer-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}
+.viewer-head #viewerTitle{flex:1;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .viewer-nav{display:flex;align-items:center;gap:6px;color:var(--muted)}
-.viewer img{max-width:86vw;max-height:calc(86vh - 90px);object-fit:contain;background:#f8f9fb}
+.viewer img{max-width:88vw;max-height:calc(88vh - 90px);object-fit:contain;background:var(--bg2)}
 .viewer-caption{padding:8px 14px;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}
-.llm-result{background:#f0f7ff;border:1px solid #cfe3ff;border-radius:8px;padding:10px;margin-top:8px;font-size:13px}
-.llm-result .newcat{background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-weight:600;display:inline-block;margin:4px 0}
-.chat-box{display:flex;flex-direction:column;height:460px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
-.chat-msgs{flex:1;overflow-y:auto;padding:14px;background:#fafbfc}
+/* ---- 对话 ---- */
+.chat-box{display:flex;flex-direction:column;height:480px;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--bg)}
+.chat-msgs{flex:1;overflow-y:auto;padding:16px}
 .msg{margin-bottom:12px;display:flex}
 .msg.user{justify-content:flex-end}
-.msg .bubble{max-width:78%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.55}
+.msg .bubble{max-width:78%;padding:10px 14px;border-radius:var(--r-lg);font-size:13px;line-height:1.6}
 .msg.user .bubble{background:var(--primary);color:#fff;border-bottom-right-radius:4px}
-.msg.assistant .bubble{background:#fff;border:1px solid var(--border);border-bottom-left-radius:4px}
-.msg .src{font-size:11px;color:var(--muted);margin-top:4px}
-.chat-input{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);background:#fff}
+.msg.assistant .bubble{background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px;box-shadow:var(--shadow)}
+.chat-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);background:var(--card)}
 .chat-input input{flex:1}
-.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
-.dash-card{background:linear-gradient(135deg,#f0f6ff,#eef2ff);border-radius:12px;padding:18px;text-align:center}
-.dash-card .num{font-size:30px;font-weight:700;color:var(--primary)}
-.dash-card .lbl{font-size:13px;color:var(--muted);margin-top:4px}
-.form-row{display:grid;grid-template-columns:140px 1fr;gap:8px 14px;align-items:center;margin-bottom:12px}
+/* ---- 仪表盘 ---- */
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.dash-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;text-align:center}
+.dash-card .num{font-size:28px;font-weight:500;color:var(--primary)}
+.dash-card .lbl{font-size:12px;color:var(--muted);margin-top:4px}
+/* ---- 设置 ---- */
+.form-row{display:grid;grid-template-columns:130px 1fr;gap:8px 14px;align-items:center;margin-bottom:14px}
 .form-row label{font-size:13px;color:var(--muted);text-align:right}
 .form-row input{width:100%}
-.settings-note{font-size:12px;color:var(--muted);background:#fffbe6;border:1px solid #ffe58f;border-radius:8px;padding:10px;margin-bottom:12px}
+.settings-note{font-size:12px;color:var(--muted);background:var(--warn-soft);border:1px solid #f0d9a8;border-radius:var(--r-sm);padding:10px;margin-bottom:14px}
 .attach-list{font-size:12px;color:var(--muted);margin-top:6px}
 .attach-list a{color:var(--primary);text-decoration:none;margin-right:8px}
+.attach-list .x{cursor:pointer;margin-right:8px}
+.pager{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:18px}
+.pager .pi{font-size:13px;color:var(--muted)}
+/* ---- toast ---- */
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:#1c2330;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;z-index:300;opacity:0;transition:.25s;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.viewer-head .btn,.pager .btn{border:1px solid var(--border2);background:#fff;color:var(--text);border-radius:var(--r-sm);padding:5px 10px;font-size:12px;cursor:pointer}
+@media(max-width:720px){.nav{width:52px}.main{padding:16px 14px 60px}}
 </style>
 </head>
 <body>
-<header>
-  <div class="header-inner">
-    <div class="logo"><span class="cube">3D</span> 3MF Manager</div>
-    <div class="tabs">
-      <button id="tab-dash" class="active" onclick="switchTab('dash')">📊 仪表盘</button>
-      <button id="tab-pending" onclick="switchTab('pending')">📥 待整理</button>
-      <button id="tab-library" onclick="switchTab('library')">🗂️ 模型库</button>
-      <button id="tab-chat" onclick="switchTab('chat')">💬 智能对话</button>
-      <button id="tab-settings" onclick="switchTab('settings')">⚙️ 设置</button>
+<div class="app">
+  <nav class="nav" id="nav"></nav>
+  <div class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div class="tb-title" id="pageTitle">仪表盘</div>
+        <div class="tb-sub" id="pageSub"></div>
+      </div>
+      <div class="statrow" id="statsBar"></div>
     </div>
-    <div class="stats" id="statsBar"></div>
-  </div>
-</header>
-<main>
-  <!-- ===== 仪表盘 ===== -->
-  <section id="view-dash">
-    <div class="panel">
-      <h2><span class="dot"></span>资产总览</h2>
-      <div class="dash-grid" id="dashGrid"></div>
-    </div>
-    <div class="panel">
-      <h2><span class="dot"></span>分类分布</h2>
-      <div id="dashCats"></div>
-    </div>
-    <div class="panel">
-      <h2><span class="dot"></span>Hash 重复提示</h2>
-      <div id="dashDup"></div>
-    </div>
-  </section>
 
-  <!-- ===== 待整理 ===== -->
-  <section id="view-pending" style="display:none">
-    <div class="panel">
-      <h2><span class="dot"></span>上传 + 预分类确认</h2>
-      <div class="drop" onclick="document.getElementById('fileInput').click()">
-        <div><div class="big" style="font-size:16px">点击选择或将 .3mf 拖到这里</div>
-        <div>解析 → 规则分类 + 可选 LLM 模型分类 → 确认归档</div>
-        <input type="file" id="fileInput" accept=".3mf" multiple></div>
-      </div>
-      <div class="hint" id="upload-status"></div>
-    </div>
-    <div class="panel">
-      <div class="toolbar">
-        <h2 style="margin:0;flex:1"><span class="dot"></span>待整理文件（<span id="pendCount">0</span>）</h2>
-        <button class="btn ok" onclick="applyAll()">确认全部归档</button>
-      </div>
-      <div id="pendingWrap"></div>
-    </div>
-  </section>
+    <!-- ===== 仪表盘 ===== -->
+    <section id="view-dash">
+      <div class="panel"><div class="panel-h">资产总览</div><div class="dash-grid" id="dashGrid"></div></div>
+      <div class="panel"><div class="panel-h">分类分布</div><div id="dashCats"></div></div>
+      <div class="panel"><div class="panel-h">Hash 重复提示</div><div id="dashDup"></div></div>
+    </section>
 
-  <!-- ===== 模型库 ===== -->
-  <section id="view-library" style="display:none">
-    <div class="panel">
-      <h2><span class="dot"></span>模型库查询</h2>
-      <div class="toolbar">
-        <input type="text" id="q" placeholder="搜索 文件名/标题/别名/设计ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
-        <select id="f-cat" onchange="debouncedSearch()"><option value="">全部分类</option></select>
-        <select id="f-status" onchange="debouncedSearch()">
-          <option value="">全部状态</option><option value="pending">待整理</option><option value="applied">已归档</option>
-        </select>
-        <button class="btn primary" onclick="search()">查询</button>
+    <!-- ===== 待整理 ===== -->
+    <section id="view-pending" style="display:none">
+      <div class="panel">
+        <div class="panel-h">上传 3MF</div>
+        <div class="drop" onclick="document.getElementById('fileInput').click()">
+          <div><div class="big">点击选择或拖入 .3mf 文件</div>
+          <div style="font-size:12px;color:var(--muted)">解析 → 预分类 → 确认归档</div>
+          <input type="file" id="fileInput" accept=".3mf" multiple></div>
+        </div>
+        <div class="hint" id="upload-status" style="margin-top:10px"></div>
       </div>
-      <div class="hint" style="margin-bottom:8px">💡 需要语义搜索请用「智能对话」。</div>
-      <div id="libWrap"></div>
-    </div>
-  </section>
+      <div class="panel">
+        <div class="toolbar" style="justify-content:space-between">
+          <div class="panel-h" style="margin:0">待整理文件 <span style="font-weight:400;color:var(--muted)">(<span id="pendCount">0</span>)</span></div>
+          <button class="btn ok" onclick="applyAll()">确认全部归档</button>
+        </div>
+        <div id="pendingWrap"></div>
+      </div>
+    </section>
 
-  <!-- ===== 对话 ===== -->
-  <section id="view-chat" style="display:none">
-    <div class="panel">
-      <div class="toolbar">
-        <h2 style="margin:0;flex:1"><span class="dot"></span>模型库智能助手</h2>
-        <button class="btn ghost sm" onclick="clearChat()">清空对话</button>
+    <!-- ===== 模型库 ===== -->
+    <section id="view-library" style="display:none">
+      <div class="panel">
+        <div class="panel-h">模型库查询</div>
+        <div class="toolbar">
+          <input type="text" id="q" placeholder="搜索 文件名/标题/别名/设计ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
+          <select id="f-cat"><option value="">全部分类</option></select>
+          <select id="f-status"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied">已归档</option></select>
+          <button class="btn p" onclick="search()">查询</button>
+        </div>
+        <div class="hint" style="margin-bottom:8px">语义搜索请用「智能对话」。</div>
+        <div id="libWrap"></div>
       </div>
-      <div class="hint" style="margin-bottom:10px">用自然语言检索/询问你的 3MF 模型库（基于已配置的模型能力）。</div>
-      <div class="chat-box">
-        <div class="chat-msgs" id="chatMsgs"></div>
-        <div class="chat-input">
-          <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter')sendChat()">
-          <button class="btn primary" onclick="sendChat()">发送</button>
+    </section>
+
+    <!-- ===== 对话 ===== -->
+    <section id="view-chat" style="display:none">
+      <div class="panel">
+        <div class="toolbar" style="justify-content:space-between">
+          <div class="panel-h" style="margin:0">模型库智能助手</div>
+          <button class="btn ghost sm" onclick="clearChat()">清空对话</button>
+        </div>
+        <div class="hint" style="margin-bottom:10px">用自然语言检索你的 3MF 模型库（需配置模型能力）。</div>
+        <div class="chat-box">
+          <div class="chat-msgs" id="chatMsgs"></div>
+          <div class="chat-input">
+            <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter')sendChat()">
+            <button class="btn p" onclick="sendChat()">发送</button>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ===== 设置 ===== -->
-  <section id="view-settings" style="display:none">
-    <div class="panel">
-      <h2><span class="dot"></span>模型能力配置</h2>
-      <div class="settings-note">支持任意 OpenAI 兼容接口（本地 Ollama/vLLM、OpenAI、DeepSeek、通义等）。示例：base_url 填 `http://127.0.0.1:11434/v1` 或 `https://api.deepseek.com/v1`，model 填模型名（如 `qwen2.5:14b`、`deepseek-chat`）。</div>
-      <div class="form-row"><label>Base URL</label><input id="cfg-url" placeholder="http://.../v1"></div>
-      <div class="form-row"><label>API Key</label><input id="cfg-key" placeholder="(可选，本地模型可留空)" type="password"></div>
-      <div class="form-row"><label>模型名</label><input id="cfg-model" placeholder="如 deepseek-chat / qwen2.5"></div>
-    </div>
-    <div class="panel">
-      <h2><span class="dot"></span>本地路径配置</h2>
-      <div class="form-row"><label>收藏根目录</label><input id="cfg-root" placeholder="~/Downloads/3D模型库"></div>
-      <div class="hint">上传的 3MF 会复制到该目录下的 `00_待整理`，归档后按分类放入其子目录。</div>
-    </div>
-    <div class="panel">
-      <button class="btn primary" onclick="saveConfig()">保存配置</button>
-      <span id="cfgStatus" class="hint" style="margin-left:10px"></span>
-    </div>
-  </section>
-</main>
+    <!-- ===== 设置 ===== -->
+    <section id="view-settings" style="display:none">
+      <div class="panel">
+        <div class="panel-h">模型能力配置</div>
+        <div class="settings-note">支持任意 OpenAI 兼容接口（本地 Ollama/vLLM、DeepSeek、通义等）。示例：`http://127.0.0.1:11434/v1` 或 `https://api.deepseek.com/v1`。</div>
+        <div class="form-row"><label>Base URL</label><input id="cfg-url" placeholder="http://.../v1"></div>
+        <div class="form-row"><label>API Key</label><input id="cfg-key" placeholder="(可选)" type="password"></div>
+        <div class="form-row"><label>模型名</label><input id="cfg-model" placeholder="如 deepseek-chat / qwen2.5"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h">本地路径配置</div>
+        <div class="form-row"><label>收藏根目录</label><input id="cfg-root" placeholder="~/Downloads/3D模型库"></div>
+        <div class="hint">上传的 3MF 复制到 `00_待整理`，归档后按分类放入子目录。</div>
+      </div>
+      <div class="panel"><button class="btn p" onclick="saveConfig()">保存配置</button><span id="cfgStatus" class="hint" style="margin-left:10px"></span></div>
+    </section>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
-
-<!-- 摆盘图查看器 -->
 <div class="viewer-mask" id="viewerMask" onclick="closeViewer(event)">
   <div class="viewer">
     <div class="viewer-head">
       <span id="viewerTitle"></span>
-      <span class="viewer-nav">
-        <button class="btn ghost sm" onclick="viewerPrev()">◀</button>
-        <span id="viewerIdx"></span>
-        <button class="btn ghost sm" onclick="viewerNext()">▶</button>
-      </span>
-      <button class="btn ghost sm" onclick="closeViewer()">✕</button>
+      <span class="viewer-nav"><button onclick="viewerPrev()">◀</button><span id="viewerIdx"></span><button onclick="viewerNext()">▶</button></span>
+      <button onclick="closeViewer()">✕</button>
     </div>
     <img id="viewerImg" src="" alt="">
     <div class="viewer-caption" id="viewerCaption"></div>
   </div>
 </div>
+
 <script>
 const $=s=>document.querySelector(s);
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-
-// ---- 摆盘图查看器 ----
-let viewerFiles=[], viewerIdx=0;
-async function openViewer(fileId){
-  const r=await fetch('/api/files');const j=await r.json();
-  const f=j.files.find(x=>x.id==fileId);
-  if(!f)return;
-  viewerFiles=[];
-  if(f.thumb)viewerFiles.push({url:'/thumbs/'+f.thumb,label:'模型预览'});
-  (f.plate_imgs||'').split(',').filter(Boolean).forEach(p=>viewerFiles.push({url:'/thumbs/'+p,label:'摆盘图'}));
-  if(!viewerFiles.length){toast('该文件无摆盘图');return}
-  viewerIdx=0;showViewerImage();
-  $('#viewerMask').classList.add('show');
-}
-function showViewerImage(){
-  if(!viewerFiles.length)return;
-  const v=viewerFiles[viewerIdx];
-  $('#viewerImg').src=v.url;
-  $('#viewerImg').alt=v.label;
-  $('#viewerTitle').textContent=document.title.split('·')[0].trim();
-  $('#viewerCaption').textContent=v.label;
-  $('#viewerIdx').textContent=(viewerIdx+1)+' / '+viewerFiles.length;
-}
-function viewerNext(){if(viewerFiles.length)viewerIdx=(viewerIdx+1)%viewerFiles.length;showViewerImage()}
-function viewerPrev(){if(viewerFiles.length)viewerIdx=(viewerIdx-1+viewerFiles.length)%viewerFiles.length;showViewerImage()}
-function closeViewer(e){if(e&&e.target!==e.currentTarget)return;$('#viewerMask').classList.remove('show')}
-document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev();if(e.key==='Escape')closeViewer()}})
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2200)}
+
+// ===== 左侧导航 =====
+const NAV=[{k:'dash',i:'▦',l:'仪表盘'},{k:'pending',i:'⇪',l:'待整理'},{k:'library',i:'▤',l:'模型库'},{k:'chat',i:'◈',l:'对话'},{k:'settings',i:'⚙',l:'设置'}];
+const TITLES={dash:['仪表盘','资产总览与状态'],pending:['待整理','上传并确认归档'],library:['模型库','检索与管理模型'],chat:['智能对话','自然语言检索模型库'],settings:['设置','模型能力与路径']};
+function renderNav(){
+  $('#nav').innerHTML='<div class="logo">3D</div>'+NAV.map(n=>
+    `<button class="ni" id="nav-${n.k}" onclick="switchTab('${n.k}')"><span>${n.i}</span><span class="lb">${n.l}</span></button>`).join('');
+}
 function switchTab(name){
-  ['dash','pending','library','chat','settings'].forEach(n=>{
-    document.getElementById('view-'+n).style.display=n===name?'':'none';
-    document.getElementById('tab-'+n).classList.toggle('active',n===name);
+  ['dash','pending','library','chat','settings'].forEach(k=>{
+    document.getElementById('view-'+k).style.display=k===name?'':'none';
+    document.getElementById('nav-'+k).classList.toggle('active',k===name);
   });
+  $('#pageTitle').textContent=TITLES[name][0];
+  $('#pageSub').textContent=TITLES[name][1];
   if(name==='dash')loadDash();
   if(name==='pending')loadPending();
   if(name==='library')search();
   if(name==='settings')loadConfig();
 }
+
 // ===== 上传 =====
 const drop=document.querySelector('.drop');
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});
@@ -280,176 +274,142 @@ async function uploadFiles(files){
   const r=await fetch('/api/upload',{method:'POST',body:fd});const j=await r.json();
   const dups=j.results.filter(x=>x.is_duplicate);
   let msg=`成功 ${j.results.filter(x=>x.ok).length} 个`;
-  if(dups.length)msg+=`，⚠️ 其中 ${dups.length} 个与已有文件 hash 重复（已标红提示）`;
+  if(dups.length)msg+=`，⚠️ ${dups.length} 个 hash 重复（已标红）`;
   $('#upload-status').textContent=msg;
   if(dups.length)toast(`⚠️ 检测到 ${dups.length} 个重复上传`);
   loadStats();loadPending();
 }
-// ===== 待整理 =====
-async function loadPending(){
-  const r=await fetch('/api/files?status=pending');const j=await r.json();
-  renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length;
-}
-function renderPending(files){
-  const w=$('#pendingWrap');
-  if(!files.length){w.innerHTML='<div class="empty-state">暂无待整理，请先上传</div>';return}
-  // 待整理默认展开
-  w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>';
-}
+
+// ===== 卡片渲染 =====
 function cardHTML(f,showActions=true,collapsed=false){
   const plates=(f.plate_imgs||'').split(',').filter(Boolean);
-  const thumb=f.thumb
-    ?`<img class="thumb" src="/thumbs/${f.thumb}" onclick="openViewer('${f.id}')" style="cursor:zoom-in" title="点击查看摆盘图">`
-    :`<div class="thumb empty">未上传缩略图</div>`;
-  const plateBtn=(plates.length||f.thumb)
-    ?`<span class="badge" style="cursor:pointer" onclick="openViewer('${f.id}')">🖼 摆盘${plates.length?'×'+plates.length:''}</span>`
-    :'';
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
   const infoCls=collapsed?'card-info collapsed':'card-info';
-  return `<div class="card ${f.status}">
-    ${thumb}
-    ${plateBtn}
-    <div class="cname">${esc(f.filename)}</div>
-    <div class="path">${esc(f.path)}</div>
-    <div class="${infoCls}" id="info-${f.id}">
-    <div class="kv">
-      <b>分类</b><span class="badge cat">${esc(f.category)}</span>
-      <b>目标</b><span>${esc(f.target_dir||'—')}</span>
-      <b>别名</b><span class="badge">${esc(f.alias||'—')}</span>
-      <b>设计ID</b><span class="badge hash">${esc(f.design_id||'—')}</span>
-      <b>SHA256</b><span class="badge hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span>
-      <b>几何</b><span>${f.vertices}顶/${f.triangles}面</span>
-      <b>大小</b><span>${f.size_mb}MB</span>
+  const thumb=f.thumb
+    ?`<img class="thumb" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="点击查看摆盘图">`
+    :`<div class="thumb empty">未上传缩略图</div>`;
+  return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
+    <div class="th-wrap">
+      ${f.status==='pending'?'<span class="pill y th-badge">待整理</span>':''}
+      ${thumb}
+    </div>
+    <div class="card-body">
+      <div class="cname">${esc(f.filename)}</div>
+      <div class="path" title="${esc(f.path)}">${esc(f.path)}</div>
+      <div>
+        <span class="pill cat">${esc(f.category)}</span>
+        ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
+        ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
+        <span class="pill">${f.size_mb}MB</span>
+      </div>
+    </div>
+    <div class="${infoCls}">
+      <div class="kv">
+        <b>目标</b><span>${esc(f.target_dir||'—')}</span>
+        <b>别名</b><span>${esc(f.alias||'—')}</span>
+        <b>设计ID</b><span class="pill hash">${esc(f.design_id||'—')}</span>
+        <b>SHA256</b><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span>
+        <b>几何</b><span>${f.vertices}顶/${f.triangles}面</span>
+      </div>
+      <div class="tag-input">
+        <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id})">
+        <button class="btn ghost sm" onclick="addTag(${f.id})">添加</button>
+      </div>
+      <div class="taglist">${tags||'<span class="hint">无标签</span>'}</div>
+      <div class="attach-list" id="att-${f.id}"></div>
     </div>
     ${showActions?`<div class="actions">
       <button class="btn ok sm" onclick="applyOne(${f.id})">归档</button>
-      <button class="btn ghost sm" onclick="llmClassify(${f.id})">🤖 模型分类</button>
-      <button class="btn ghost sm" onclick="toggleAlias(${f.id})">改名</button>
-      <button class="btn ghost sm" onclick="toggleReclass(${f.id})">手动改分类</button>
+      <button class="btn ghost sm" onclick="llmClassify(${f.id})">模型分类</button>
+      <button class="btn ghost sm" onclick="toggleReclass(${f.id})">改分类</button>
       <button class="btn ghost sm" onclick="uploadThumb(${f.id})">缩略图</button>
       <button class="btn ghost sm" onclick="attachFile(${f.id})">附件</button>
-      <button class="btn ghost sm" onclick="delFile(${f.id})">移除</button>
+      <button class="btn dg sm" onclick="delFile(${f.id})">移除</button>
+    </div><div id="llm-${f.id}"></div><div id="reclass-${f.id}" style="display:none;padding:0 14px">
+      <select id="rc-cat-${f.id}" class="alias-input"></select>
+      <button class="btn ok sm" style="margin-top:6px" onclick="reclassApply(${f.id})">应用</button>
     </div>`:''}
-    <div id="llm-${f.id}"></div>
-    <div id="reclass-${f.id}" style="display:none;margin-top:8px">
-      <select id="rc-cat-${f.id}" class="alias-input"><option value="">选择分类...</option></select>
-      <button class="btn ok sm" style="margin-top:6px" onclick="reclassApply(${f.id})">应用分类</button>
-    </div>
-    <input class="alias-input" id="alias-${f.id}" value="${esc(f.alias||'')}" style="display:none">
-    <div class="tag-input" style="display:flex;gap:6px;margin-top:6px">
-      <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id})">
-      <button class="btn ghost sm" onclick="addTag(${f.id})">添加</button>
-    </div>
-    <div class="taglist">${tags||'<span class="hint">无标签</span>'}</div>
-    <div class="attach-list" id="att-${f.id}"></div>
-    </div>
-    <div class="card-toggle" onclick="toggleInfo(${f.id})"><span class="tri">▼</span> <span id="tog-${f.id}">${collapsed?'展开信息':'收起信息'}</span></div>
+    <div class="card-toggle" onclick="toggleInfo(event)"><span class="tri">▼</span> <span class="tog-txt">${collapsed?'展开信息':'收起信息'}</span></div>
   </div>`;
 }
-// 归档
-async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending();}
-async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const ids=j.files.map(f=>f.id);if(!ids.length){toast('无待整理');return}const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();const ok=j2.results.filter(x=>x.ok).length;toast(`归档 ${ok}/${ids.length}`);loadPending();loadStats();}
-function toggleAlias(id){const i=$('#alias-'+id);i.style.display=i.style.display==='none'?'block':'none'}
+function toggleInfo(ev){
+  ev=ev||window.event;var btn=ev.currentTarget||ev.target;
+  if(!btn||!btn.closest)return;
+  var box=btn.closest('.card').querySelector('.card-info');if(!box)return;
+  var c=box.classList.toggle('collapsed');
+  var t=btn.querySelector('.tog-txt');if(t)t.textContent=c?'展开信息':'收起信息';
+}
+
+// ===== 待整理 =====
+async function loadPending(){const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
+function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML='<div class="empty-state">暂无待整理，请先上传</div>';return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>'}
+async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending()}
+async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const ids=j.files.map(f=>f.id);if(!ids.length){toast('无待整理');return}const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();toast(`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`);loadPending()}
 function toggleReclass(id){const d=$('#reclass-'+id);d.style.display=d.style.display==='none'?'block':'none';if(d.style.display==='block')loadCategoryOptions(id)}
-async function loadCategoryOptions(id){
-  const r=await fetch('/api/categories');const j=await r.json();
-  const opts=[...j.ip.map(x=>'IP·'+x),...Object.keys(j.func||{})];
-  $('#rc-cat-'+id).innerHTML='<option value="">选择分类...</option>'+opts.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
-}
-async function reclassApply(id){const cat=$('#rc-cat-'+id).value;if(!cat){toast('请选择分类');return}await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});toast('分类已更新');loadPending();}
-// LLM 分类
-async function llmClassify(id){
-  const box=$('#llm-'+id);box.innerHTML='<div class="llm-result">🤖 正在调用模型分类...</div>';
-  const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-  const j=await r.json();
-  if(!r.ok){box.innerHTML=`<div class="llm-result" style="background:#fef2f2;border-color:#fecaca">${esc(j.error)}</div>`;return}
-  const isNew=j.is_new;
-  box.innerHTML=`<div class="llm-result">
-    <div>🤖 模型建议分类：<b>${esc(j.category)}</b> ${isNew?'<span class="newcat">新分类</span>':'<span style="color:var(--ok)">现有分类</span>'}</div>
-    <div class="hint">理由：${esc(j.reason)}</div>
-    <div style="margin-top:8px">
-      <button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${isNew})">${isNew?'创建并应用新分类':'采用此分类'}</button>
-      <button class="btn ghost sm" onclick="$('#llm-${id}').innerHTML=''">忽略</button>
-    </div>
-  </div>`;
-}
-async function applyCategory(id,cat,isNew){
-  const url=isNew?'/api/confirm-new-category':'/api/recategorize';
-  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});
-  const j=await r.json();
-  toast(j.message||'已应用分类');loadPending();
-}
-// Tag
-async function addTag(id){const inp=$('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';loadPending();}
-async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});loadPending();}
-// 缩略图/附件
-function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();toast(j.ok?'缩略图已上传':'失败');loadPending();loadLib();};inp.click()}
-function attachFile(id){const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();toast(j.ok?`附件已关联 ${j.saved.length}`:'失败');loadPending();};inp.click()}
+async function loadCategoryOptions(id){const r=await fetch('/api/categories');const j=await r.json();const opts=[...j.ip.map(x=>'IP·'+x),...Object.keys(j.func||{})];$('#rc-cat-'+id).innerHTML='<option value="">选择分类...</option>'+opts.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+async function reclassApply(id){const cat=$('#rc-cat-'+id).value;if(!cat){toast('请选择分类');return}await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});toast('分类已更新');loadPending()}
+async function llmClassify(id){const box=$('#llm-'+id);box.innerHTML='<div class="hint" style="padding:8px 0">正在调用模型分类...</div>';const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(j.error)}</div>`;return}box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span> ${j.is_new?'<span class="pill y">新分类建议</span>':'现有分类'} · ${esc(j.reason)}<br><button class="btn ok sm" style="margin-top:6px" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new})">${j.is_new?'创建新分类':'采用'}</button></div>`}
+async function applyCategory(id,cat,isNew){const url=isNew?'/api/confirm-new-category':'/api/recategorize';const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});const j=await r.json();toast(j.message||'已应用分类');loadPending()}
+
+// ===== Tag =====
+async function addTag(id){const inp=$('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';loadPending()}
+async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});loadPending()}
+
+// ===== 缩略图/附件 =====
+function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();toast(j.ok?'缩略图已上传':'失败');loadPending()};inp.click()}
+function attachFile(id){const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();toast(j.ok?`附件已关联 ${j.saved.length}`:'失败');loadPending()};inp.click()}
 async function loadAttachments(id){const r=await fetch('/api/attachments?file_id='+id);const j=await r.json();const box=$('#att-'+id);if(!box)return;if(!j.attachments.length){box.innerHTML='';return}box.innerHTML='附件：'+j.attachments.map(a=>`<a href="/attachments/${a.id}" onclick="return false" title="${esc(a.abs_path)}">${esc(a.name)}</a><span class="x" onclick="delAttach(${a.id})">🗑</span>`).join(' ')}
-async function delAttach(aid){await fetch('/api/attachment-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:aid})});loadPending();}
-async function delFile(id){if(!confirm('从索引移除（不删磁盘文件）？'))return;await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadPending();}
-// ===== 模型库 =====
+async function delAttach(aid){await fetch('/api/attachment-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:aid})});loadPending()}
+async function delFile(id){if(!confirm('从索引移除（不删磁盘文件）？'))return;await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadPending()}
+
+// ===== 模型库（分页） =====
 let _dt;function debouncedSearch(){clearTimeout(_dt);_dt=setTimeout(search,300)}
 async function loadCatFilter(){const r=await fetch('/api/categories');const j=await r.json();const fr=await fetch('/api/files');const fj=await fr.json();const uniq=new Set();fj.files.forEach(f=>{if(f.category)uniq.add(f.category.split(' · ')[0])});$('#f-cat').innerHTML='<option value="">全部分类</option>'+[...uniq].sort().map(c=>`<option>${esc(c)}</option>`).join('')}
 async function search(){const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);const r=await fetch('/api/files?'+p);const j=await r.json();renderLib(j.files)}
-// 模型库分页
-let libPage=1, libPageSize=20, libAll=[];
-function renderLib(files){
-  libAll=files||[]; libPage=1; paintLib();
-}
-function paintLib(){
-  const w=$('#libWrap');
-  if(!libAll.length){w.innerHTML='<div class="empty-state">无匹配文件</div>';return}
-  const total=libAll.length, pages=Math.max(1,Math.ceil(total/libPageSize));
-  if(libPage>pages)libPage=pages;
-  const start=(libPage-1)*libPageSize;
-  const page=libAll.slice(start,start+libPageSize);
-  // 模型库默认收缩
-  let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+
-    page.map(f=>cardHTML(f,false,true)).join('')+'</div>';
-  html+=`<div class="pager" style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:16px">
-    <button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button>
-    <span style="font-size:13px;color:var(--muted)">${libPage} / ${pages}</span>
-    <button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button>
-  </div>`;
-  w.innerHTML=html;
-  page.forEach(f=>loadAttachments(f.id));
-}
+let libPage=1,libPageSize=20,libAll=[];
+function renderLib(files){libAll=files||[];libPage=1;paintLib()}
+function paintLib(){const w=$('#libWrap');if(!libAll.length){w.innerHTML='<div class="empty-state">无匹配文件</div>';return}const total=libAll.length,pages=Math.max(1,Math.ceil(total/libPageSize));if(libPage>pages)libPage=pages;const start=(libPage-1)*libPageSize;const page=libAll.slice(start,start+libPageSize);let html=`<div class="hint" style="margin-bottom:10px">共 ${total} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+page.map(f=>cardHTML(f,false,true)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html;page.forEach(f=>loadAttachments(f.id))}
 function libGo(p){if(p<1)return;libPage=p;paintLib()}
 
-// 信息折叠
-function toggleInfo(id){
-  const box=$('#info-'+id);if(!box)return;
-  const collapsed=box.classList.toggle('collapsed');
-  const t=$('#tog-'+id);if(t)t.textContent=collapsed?'展开信息':'收起信息';
-}
 // ===== 对话 =====
-function addMsg(role,text,src){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;if(src&&src.length)div.querySelector('.bubble').insertAdjacentHTML('beforeend',`<div class="src">来源：${src.slice(0,3).map(s=>esc(s)).join('、')}${src.length>3?' 等':''}</div>`);box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
+function addMsg(role,text){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
 let sessionId='s'+Date.now();
-async function sendChat(){const msg=$('#chatIn').value.trim();if(!msg)return;$('#chatIn').value='';addMsg('user',msg);const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble">思考中...</div>';$('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});const j=await r.json();if(!r.ok)throw new Error(j.error);d.querySelector('.bubble').textContent=j.reply;}catch(e){d.querySelector('.bubble').textContent='❌ '+e.message}}
+async function sendChat(){const msg=$('#chatIn').value.trim();if(!msg)return;$('#chatIn').value='';addMsg('user',msg);const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble">思考中...</div>';$('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});const j=await r.json();if(!r.ok)throw new Error(j.error);d.querySelector('.bubble').textContent=j.reply}catch(e){d.querySelector('.bubble').textContent='❌ '+e.message}}
 function clearChat(){$('#chatMsgs').innerHTML='';sessionId='s'+Date.now()}
+
 // ===== 仪表盘 =====
 async function loadDash(){const r=await fetch('/api/stats');const j=await r.json();$('#dashGrid').innerHTML=`
   <div class="dash-card"><div class="num">${j.total}</div><div class="lbl">全部文件</div></div>
   <div class="dash-card"><div class="num">${j.applied}</div><div class="lbl">已归档</div></div>
   <div class="dash-card"><div class="num">${j.pending}</div><div class="lbl">待整理</div></div>
   <div class="dash-card"><div class="num">${j.total_mb}MB</div><div class="lbl">总大小</div></div>
-  <div class="dash-card"><div class="num">${j.attachments}</div><div class="lbl">附件数</div></div>
-  <div class="dash-card"><div class="num">${j.dup_groups}</div><div class="lbl">Hash重复组</div></div>`;
+  <div class="dash-card"><div class="num">${j.attachments}</div><div class="lbl">附件</div></div>
+  <div class="dash-card"><div class="num">${j.dup_groups}</div><div class="lbl">重复组</div></div>`;
   const cats=Object.entries(j.categories).sort((a,b)=>b[1]-a[1]);
-  $('#dashCats').innerHTML=cats.length?cats.map(([c,n])=>`<span class="badge cat">${esc(c)} × ${n}</span>`).join(' '):'<div class="hint">暂无分类</div>';
-  // hash 重复详情
-  const fr=await fetch('/api/files');const fj=await fr.json();
-  const seen={};const dupFiles=[];fj.files.forEach(f=>{if(!f.sha256)return;if(seen[f.sha256]){dupFiles.push([seen[f.sha256],f])}else seen[f.sha256]=f});
-  $('#dashDup').innerHTML=dupFiles.length?dupFiles.map(([a,b])=>`<div class="badge err">${esc(a.filename)} ⚠ 与 ${esc(b.filename)} 内容相同</div>`).join(' '):'<div class="hint">无内容重复</div>';
+  $('#dashCats').innerHTML=cats.length?cats.map(([c,n])=>`<span class="pill cat">${esc(c)} × ${n}</span>`).join(' '):'<div class="hint">暂无分类</div>';
+  const fr=await fetch('/api/files');const fj=await fr.json();const seen={},dups=[];
+  fj.files.forEach(f=>{if(!f.sha256)return;if(seen[f.sha256])dups.push([seen[f.sha256],f]);else seen[f.sha256]=f});
+  $('#dashDup').innerHTML=dups.length?dups.map(([a,b])=>`<span class="pill r">${esc(a.filename)} ⚠ 与 ${esc(b.filename)} 相同</span>`).join(' '):'<div class="hint">无内容重复</div>';
 }
+
+// ===== 查看器 =====
+let viewerFiles=[],viewerIdx=0;
+async function openViewer(fileId){const r=await fetch('/api/files');const j=await r.json();const f=j.files.find(x=>x.id==fileId);if(!f)return;viewerFiles=[];if(f.thumb)viewerFiles.push({url:'/thumbs/'+f.thumb,label:'模型预览'});(f.plate_imgs||'').split(',').filter(Boolean).forEach(p=>viewerFiles.push({url:'/thumbs/'+p,label:'摆盘图'}));if(!viewerFiles.length){toast('无摆盘图');return}viewerIdx=0;showViewerImage();$('#viewerMask').classList.add('show')}
+function showViewerImage(){if(!viewerFiles.length)return;const v=viewerFiles[viewerIdx];$('#viewerImg').src=v.url;$('#viewerCaption').textContent=v.label;$('#viewerIdx').textContent=(viewerIdx+1)+' / '+viewerFiles.length}
+function viewerNext(){if(viewerFiles.length)viewerIdx=(viewerIdx+1)%viewerFiles.length;showViewerImage()}
+function viewerPrev(){if(viewerFiles.length)viewerIdx=(viewerIdx-1+viewerFiles.length)%viewerFiles.length;showViewerImage()}
+function closeViewer(e){if(e&&e.target!==e.currentTarget)return;$('#viewerMask').classList.remove('show')}
+document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev();if(e.key==='Escape')closeViewer()}})
+
 // ===== 设置 =====
-async function loadConfig(){const r=await fetch('/api/config');const j=await r.json();$('#cfg-url').value=j.llm.base_url||'';$('#cfg-model').value=j.llm.model||'';$('#cfg-root').value=j.paths.library_root||'';$('#cfgStatus').textContent=j.llm.configured?'✓ 模型已配置':'（未配置模型）'}
-async function saveConfig(){const fd={llm:{base_url:$('#cfg-url').value.trim(),model:$('#cfg-model').value.trim(),api_key:$('#cfg-key').value.trim()},paths:{library_root:$('#cfg-root').value.trim()}};const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(fd)});const j=await r.json();toast(j.ok?'配置已保存':'失败');$('#cfgStatus').textContent='✓ 已保存';$('#cfg-key').value='';}
-// ===== 工具 =====
-async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><b>${j.total}</b>全部</div><div class="stat"><b>${j.pending}</b>待整理</div><div class="stat"><b>${j.applied}</b>已归档</div>`}
+async function loadConfig(){const r=await fetch('/api/config');const j=await r.json();$('#cfg-url').value=j.llm.base_url||'';$('#cfg-model').value=j.llm.model||'';$('#cfg-root').value=j.paths.library_root||'';$('#cfgStatus').textContent=j.llm.configured?'✓ 已配置':'（未配置模型）'}
+async function saveConfig(){const fd={llm:{base_url:$('#cfg-url').value.trim(),model:$('#cfg-model').value.trim(),api_key:$('#cfg-key').value.trim()},paths:{library_root:$('#cfg-root').value.trim()}};const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(fd)});const j=await r.json();toast(j.ok?'配置已保存':'失败');$('#cfgStatus').textContent='✓ 已保存';$('#cfg-key').value=''}
+
+// ===== 统计条 =====
+async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><div class="n">${j.total}</div><div class="l">全部</div></div><div class="stat"><div class="n">${j.pending}</div><div class="l">待整理</div></div><div class="stat"><div class="n">${j.applied}</div><div class="l">已归档</div></div>`}
+
 // init
-(async function(){await loadCatFilter();await loadStats();loadDash();loadPending()})();
+(async function(){renderNav();await loadCatFilter();await loadStats();loadDash();loadPending()})();
 </script>
 </body>
 </html>
