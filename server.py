@@ -33,6 +33,7 @@ STATIC = os.path.join(BASE, "static")
 DB_PATH = os.path.join(BASE, "library.db")
 THUMB_DIR = os.path.join(BASE, "thumbs")
 ATTACH_DIR = os.path.join(BASE, "attachments")
+TRASH_DIR = os.path.join(BASE, ".trash")
 
 import llm_client            # 配置 + LLM 客户端
 import parse_3mf            # 复用解析器
@@ -345,6 +346,26 @@ def rel_to_root(path):
         return os.path.relpath(path, LIBRARY_ROOT)
     except Exception:
         return os.path.basename(path)
+
+def trash_move(src):
+    """把 src 移入回收站目录，避免重名覆盖；返回目标路径，失败返回 None。"""
+    if not src or not os.path.exists(src):
+        return None
+    os.makedirs(TRASH_DIR, exist_ok=True)
+    base = os.path.basename(src)
+    dest = os.path.join(TRASH_DIR, base)
+    if os.path.abspath(dest) == os.path.abspath(src):
+        return dest
+    i = 2
+    b, e = os.path.splitext(base)
+    while os.path.exists(dest):
+        dest = os.path.join(TRASH_DIR, f"{b}_{i}{e}")
+        i += 1
+    try:
+        shutil.move(src, dest)
+    except Exception:
+        return None
+    return dest
 
 def attachment_full_path(row):
     """把附件记录解析为当前库根下的绝对路径（相对路径优先，兼容老库绝对 abs_path）。"""
@@ -841,13 +862,41 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_delete(self, data):
         fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
         conn = db_conn()
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
+        # 1) 主文件移入回收站（可恢复）
+        moved_main = trash_move(row["abs_path"])
+        # 2) 缩略图（可再生成）直接删除
+        removed_thumbs = []
+        for tname in ([row["thumb"]] if row["thumb"] else []) + \
+                       [p for p in (row["plate_imgs"] or "").split(",") if p]:
+            if tname:
+                tp = os.path.join(THUMB_DIR, tname)
+                if os.path.exists(tp):
+                    try:
+                        os.remove(tp); removed_thumbs.append(tname)
+                    except Exception:
+                        pass
+        # 3) 关联附件：移入回收站 + 删 DB 行
+        moved_att = []
+        for a in conn.execute("SELECT * FROM attachments WHERE file_id=?", (fid,)).fetchall():
+            ap = a["abs_path"] or ""
+            if ap:
+                d = trash_move(ap)
+                if d:
+                    moved_att.append(os.path.basename(d))
+            conn.execute("DELETE FROM attachments WHERE id=?", (a["id"],))
+        # 4) 删除文件索引记录
         conn.execute("DELETE FROM files WHERE id=?", (fid,))
         conn.commit(); conn.close()
-        self._send(200, {"ok": True, "removed": row["abs_path"]})
+        self._send(200, {"ok": True, "removed_index": fid,
+                         "moved_main": os.path.basename(moved_main) if moved_main else None,
+                         "removed_thumbs": removed_thumbs,
+                         "moved_attachments": moved_att})
 
     def _api_thumbnail(self):
         fields, files = self._read_multipart()

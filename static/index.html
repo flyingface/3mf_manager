@@ -401,12 +401,10 @@ function cardHTML(f,showActions=true,collapsed=false){
       </div>
     </div>
     <div class="ctx" id="ctx-${f.id}" style="display:none">
-      ${editable?'<div class="mi" onclick="llmClassify('+f.id+')">🤖 模型分类</div>':''}
-      <div class="mi" onclick="openViewer(${f.id})">查看摆盘图</div>
-      ${reclassMenu}
-      <div class="mi" onclick="uploadThumb(${f.id})">上传缩略图</div>
+      ${!editable?'<div class="mi" onclick="openViewer('+f.id+')">查看摆盘图</div>':''}
+      ${!editable?'<div class="mi" onclick="uploadThumb('+f.id+')">上传缩略图</div>':''}
       <div class="mi" onclick="attachFile(${f.id})">关联附件</div>
-      <div class="mi dg" onclick="delFile(${f.id})">从索引移除</div>
+      <div class="mi dg" onclick="delFile(${f.id})">删除文件</div>
     </div>
     <div id="llm-${f.id}"></div>
     <div id="reclass-${f.id}" style="display:none;padding:0 14px">
@@ -484,7 +482,7 @@ async function loadAttachments(id){const r=await fetch('/api/attachments?file_id
 // 添加/删除附件后，刷新当前所在视图中该卡片的附件列表（不依赖 pending 重渲染），保证待整理/模型库都及时同步
 function refreshAttach(id){loadAttachments(id);if(typeof loadStats==='function')loadStats()}
 async function delAttach(aid, fid){await fetch('/api/attachment-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:aid})});refreshAttach(fid)}
-async function delFile(id){if(!confirm('从索引移除（不删磁盘文件）？'))return;await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadPending()}
+async function delFile(id){if(!confirm('确定删除该文件？\n源文件将移入回收站（可恢复），缩略图删除，关联附件移入回收站，索引记录一并删除。'))return;const r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!j.ok){toast('删除失败：'+(j.error||'未知错误'));return}toast('已删除（源文件在回收站可恢复）');loadPending();search()}
 
 // ===== 模型库（分页） =====
 let _dt;function debouncedSearch(){clearTimeout(_dt);_dt=setTimeout(search,300)}

@@ -5,6 +5,7 @@ library.db-shm
 config.json
 thumbs/
 attachments/
+.trash/
 run/
 logs/
 
