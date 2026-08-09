@@ -672,7 +672,8 @@ class Handler(BaseHTTPRequestHandler):
             sql += " AND design_id LIKE ?"; args.append(f"%{design}%")
         sql += " ORDER BY created_at DESC, id DESC"
         rows = [dict(r) for r in conn.execute(sql, args)]
-        # ---- 重复判定：相同 sha256 视为重复；同组中排序最前者(后进, created_at DESC,id DESC)标记 is_latest_dup ----
+        # ---- 重复判定：相同 sha256 视为重复组；组内「最早一份」(created_at ASC,id ASC)
+        #      为原始可归档副本(is_earliest)，其余后进副本不可归档，显示红色「重复」状态 ----
         sha_groups = {}
         for r in rows:
             s = (r.get("sha256") or "").strip()
@@ -680,9 +681,10 @@ class Handler(BaseHTTPRequestHandler):
                 sha_groups.setdefault(s, []).append(r)
         for s, grp in sha_groups.items():
             if len(grp) > 1:
-                for i, r in enumerate(grp):
+                earliest = min(grp, key=lambda r: (r.get("created_at") or "", r.get("id") or 0))
+                for r in grp:
                     r["is_duplicate"] = True
-                    r["is_latest_dup"] = (i == 0)
+                    r["is_earliest"] = (r is earliest)
         conn.close()
         for r in rows:
             r["path"] = r["abs_path"]

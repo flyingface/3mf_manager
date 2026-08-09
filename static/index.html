@@ -370,8 +370,8 @@ function cardHTML(f,collapsed=false){
   // 状态显示：归档按钮仅由「状态」决定（pending 显示，与所在界面无关）；其余状态显示文字徽章
   let statusArea='';
   if(f.status==='pending'){
-    if(f.is_latest_dup){
-      statusArea=`<span class="pill r" title="存在相同 SHA256 的文件，后进副本不可归档">重复</span>`;
+    if(f.is_duplicate && !f.is_earliest){
+      statusArea=`<span class="pill r" title="存在相同 SHA256 的文件，非最早副本不可归档">重复</span>`;
     }else{
       statusArea=`<button class="btn ok sm" onclick="applyOne(${f.id})" title="归档到分类">归档</button>`;
     }
