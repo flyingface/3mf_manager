@@ -23,7 +23,7 @@
 
 启动: python server.py [端口]
 """
-import os, sys, re, json, hashlib, shutil, sqlite3, time, mimetypes, traceback
+import os, sys, re, json, hashlib, shutil, sqlite3, time, mimetypes, traceback, subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 from collections import Counter
@@ -326,6 +326,10 @@ def init_db():
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(files)")]
     if "plate_imgs" not in cols:
         conn.execute("ALTER TABLE files ADD COLUMN plate_imgs TEXT DEFAULT ''")
+    # 迁移：老库补 attachments.rel_path 列（相对库根，便于数据迁移）
+    acols = [r["name"] for r in conn.execute("PRAGMA table_info(attachments)")]
+    if "rel_path" not in acols:
+        conn.execute("ALTER TABLE attachments ADD COLUMN rel_path TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 
@@ -341,6 +345,19 @@ def rel_to_root(path):
         return os.path.relpath(path, LIBRARY_ROOT)
     except Exception:
         return os.path.basename(path)
+
+def attachment_full_path(row):
+    """把附件记录解析为当前库根下的绝对路径（相对路径优先，兼容老库绝对 abs_path）。"""
+    rel = row.get("rel_path") if hasattr(row, "get") else row["rel_path"]
+    if rel:
+        p = os.path.join(LIBRARY_ROOT, rel)
+        if os.path.exists(p):
+            return p
+    abs_p = row.get("abs_path") if hasattr(row, "get") else row["abs_path"]
+    if abs_p and os.path.exists(abs_p):
+        return abs_p
+    # 都不存在时仍返回相对解析结果，便于上层 404 统一处理
+    return os.path.join(LIBRARY_ROOT, rel) if rel else (abs_p or "")
 
 # ---------------------------------------------------------------
 # LLM 增强功能
@@ -490,7 +507,16 @@ class Handler(BaseHTTPRequestHandler):
         if p.startswith("/thumbs/"):
             return self._serve_file(os.path.join(THUMB_DIR, p[len("/thumbs/"):]))
         if p.startswith("/attachments/"):
-            return self._serve_file(os.path.join(ATTACH_DIR, p[len("/attachments/"):]))
+            aid = p[len("/attachments/"):]
+            conn = db_conn()
+            r = conn.execute("SELECT abs_path, rel_path FROM attachments WHERE id=?", (aid,)).fetchone()
+            conn.close()
+            if not r:
+                self._send(404, {"error": "not found"}); return
+            full = attachment_full_path(r)
+            if not full or not os.path.exists(full):
+                self._send(404, {"error": "not found"}); return
+            return self._serve_file(full)
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -522,6 +548,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_attachment_delete(self._read_json())
         if p == "/api/recategorize":
             return self._api_recategorize(self._read_json())
+        if p == "/api/open-folder":
+            return self._api_open_folder(self._read_json())
+        if p == "/api/set-alias":
+            return self._api_set_alias(self._read_json())
         self._send(404, {"error": "not found"})
 
     def _serve_file(self, fp, fallback="application/octet-stream"):
@@ -752,10 +782,52 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
+        if row["status"] != "pending":
+            conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         target = target_relpath(cat, row["filename"], row["title"], row["folder"])
         conn.execute("UPDATE files SET category=?, target_dir=?, status='pending' WHERE id=?", (cat, target, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "category": cat, "target_dir": target})
+
+    def _api_open_folder(self, data):
+        """在系统文件管理器中打开该文件的归档目录。data: {id}"""
+        fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        conn = db_conn()
+        row = conn.execute("SELECT target_dir FROM files WHERE id=?", (fid,)).fetchone()
+        conn.close()
+        if not row:
+            self._send(404, {"error": "not found"}); return
+        tdir = (row["target_dir"] or "").strip()
+        abs_dir = os.path.join(LIBRARY_ROOT, tdir) if tdir else LIBRARY_ROOT
+        os.makedirs(abs_dir, exist_ok=True)
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", abs_dir], check=True)
+            elif sys.platform == "win32":
+                os.startfile(abs_dir)  # noqa: F821 (仅 Windows)
+            else:
+                subprocess.run(["xdg-open", abs_dir], check=True)
+            self._send(200, {"ok": True, "path": abs_dir})
+        except Exception as e:
+            self._send(500, {"error": f"无法打开目录: {e}"})
+
+    def _api_set_alias(self, data):
+        """手动编辑归档名。data: {id, alias}"""
+        fid = data.get("id"); alias = data.get("alias")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        conn = db_conn()
+        row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+        if not row:
+            conn.close(); self._send(404, {"error": "not found"}); return
+        if row["status"] != "pending":
+            conn.close(); self._send(400, {"error": "已归档文件不可修改归档名"}); return
+        alias = (alias or "").strip()
+        conn.execute("UPDATE files SET alias=? WHERE id=?", (alias, fid))
+        conn.commit(); conn.close()
+        self._send(200, {"ok": True, "alias": alias})
 
     def _api_set_tags(self, data):
         fid = data.get("id"); tags = data.get("tags", [])
@@ -808,14 +880,18 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "file not found"}); return
+        # 上传到该模型在模型库的归档目录下（按 target_dir 落盘），再建立关联
+        tdir = os.path.join(LIBRARY_ROOT, row["target_dir"]) if row["target_dir"] else LIBRARY_ROOT
+        os.makedirs(tdir, exist_ok=True)
         saved = []
         for _, fname, data in files:
             safe = re.sub(r'[\\/:*?"<>|]', '_', fname)
-            dest = os.path.join(ATTACH_DIR, f"{fid}_{int(time.time())}_{safe}")
+            dest = os.path.join(tdir, f"{int(time.time())}_{safe}")
             with open(dest, "wb") as f:
                 f.write(data)
-            conn.execute("INSERT INTO attachments (file_id, name, abs_path, size_mb, created_at) VALUES (?,?,?,?,?)",
-                         (fid, safe, dest, round(len(data)/1024/1024, 2), time.strftime("%Y-%m-%d %H:%M:%S")))
+            rel = os.path.relpath(dest, LIBRARY_ROOT)
+            conn.execute("INSERT INTO attachments (file_id, name, abs_path, rel_path, size_mb, created_at) VALUES (?,?,?,?,?,?)",
+                         (fid, safe, dest, rel, round(len(data)/1024/1024, 2), time.strftime("%Y-%m-%d %H:%M:%S")))
             saved.append(safe)
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "saved": saved})
@@ -826,8 +902,9 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM attachments WHERE id=?", (aid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
-        if os.path.exists(row["abs_path"]):
-            os.remove(row["abs_path"])
+        full = attachment_full_path(row)
+        if full and os.path.exists(full):
+            os.remove(full)
         conn.execute("DELETE FROM attachments WHERE id=?", (aid,))
         conn.commit(); conn.close()
         self._send(200, {"ok": True})
@@ -875,6 +952,8 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
+        if row["status"] != "pending":
+            conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         # 应用分类
         target = target_relpath(category, row["filename"], row["title"], row["folder"])
         conn.execute("UPDATE files SET category=?, target_dir=?, status='pending' WHERE id=?", (category, target, fid))

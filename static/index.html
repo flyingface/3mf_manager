@@ -91,7 +91,7 @@ input::placeholder{color:var(--tert)}
 .card-hd .pill{margin:0}
 .pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d);margin:2px 4px 2px 0}
 .pill.cat{background:var(--ok-soft);color:var(--ok)}
-.pill.hash{font-family:ui-monospace,Menlo,monospace;background:var(--bg2);color:var(--muted)}
+.pill.hash{font-family:ui-monospace,Menlo,monospace;background:transparent;color:var(--muted);padding:0;border-radius:0}
 .pill.y{background:var(--warn-soft);color:var(--warn)}
 .pill.r{background:var(--err-soft);color:var(--err)}
 .pill.clickable{cursor:pointer}
@@ -111,6 +111,13 @@ input::placeholder{color:var(--tert)}
 .card-info.collapsed{max-height:0!important;opacity:0}
 .kv{font-size:12px;color:var(--muted);display:grid;grid-template-columns:64px 1fr;gap:3px 8px;padding:4px 0}
 .kv b{font-weight:500;color:var(--text)}
+.kv-val{display:flex;align-items:center;gap:6px;min-width:0}
+.kv-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.kv-ico{border:none;background:var(--bg2);color:var(--muted);width:20px;height:20px;border-radius:6px;font-size:11px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;transition:.15s}
+.kv-ico:hover{background:var(--primary-soft);color:var(--primary)}
+.cat-edit{cursor:pointer}
+.cat-edit:hover{text-decoration:underline;text-decoration-style:dotted}
+.cat-input{font-size:12px;padding:3px 6px;border:1px solid var(--primary);border-radius:6px;background:#fff;color:var(--text);outline:none}
 .card-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;padding:8px 14px;border-top:1px solid var(--border);transition:color .15s}
 .card-toggle:hover{color:var(--primary)}
 .card-toggle .tri{display:inline-block;transition:transform .2s;font-size:10px}
@@ -239,7 +246,7 @@ input::placeholder{color:var(--tert)}
       <div class="panel">
         <div class="panel-h">模型库查询</div>
         <div class="toolbar">
-          <input type="text" id="q" placeholder="搜索 文件名/标题/别名/设计ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
+          <input type="text" id="q" placeholder="搜索 文件名/标题/归档名/MakeWorld ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
           <select id="f-cat"><option value="">全部分类</option></select>
           <select id="f-status"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied">已归档</option></select>
           <button class="btn p" onclick="search()">查询</button>
@@ -368,6 +375,17 @@ function cardHTML(f,showActions=true,collapsed=false){
   }else if(f.status==='applied'){
     statusArea=`<span class="pill" style="background:var(--ok-soft);color:var(--ok)">已归档</span>`;
   }
+  // 仅「待整理」卡片允许修改归档名与分类
+  const editable = f.status==='pending';
+  const aliasKV = editable
+    ? `<b>归档名</b><span><span id="alias-${f.id}" class="kv-txt cat-edit" title="点击编辑归档名" data-cur="${esc(f.alias||'')}" onclick="editAlias(${f.id}, this);event.stopPropagation()">${esc(f.alias||'—')}</span></span>`
+    : `<b>归档名</b><span>${esc(f.alias||'—')}</span>`;
+  const catKV = editable
+    ? `<b>分类</b><span class="kv-val"><span id="cat-${f.id}" class="kv-txt cat-edit" title="点击编辑分类" data-cur="${esc(f.category||'')}" onclick="editCategory(${f.id}, this);event.stopPropagation()">${esc(f.category||'—')}</span><button class="kv-ico" title="AI 自动分类" data-cur="${esc(f.category||'')}" onclick="llmClassify(${f.id}, this);event.stopPropagation()">🤖</button></span>`
+    : `<b>分类</b><span>${esc(f.category||'—')}</span>`;
+  const reclassMenu = editable
+    ? `<div class="mi" onclick="toggleReclass(${f.id})">手动改分类</div>`
+    : '';
   return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
     <div class="card-hd">
       ${thumb}
@@ -383,9 +401,9 @@ function cardHTML(f,showActions=true,collapsed=false){
       </div>
     </div>
     <div class="ctx" id="ctx-${f.id}" style="display:none">
-      <div class="mi" onclick="llmClassify(${f.id})">🤖 模型分类</div>
+      ${editable?'<div class="mi" onclick="llmClassify('+f.id+')">🤖 模型分类</div>':''}
       <div class="mi" onclick="openViewer(${f.id})">查看摆盘图</div>
-      <div class="mi" onclick="toggleReclass(${f.id})">手动改分类</div>
+      ${reclassMenu}
       <div class="mi" onclick="uploadThumb(${f.id})">上传缩略图</div>
       <div class="mi" onclick="attachFile(${f.id})">关联附件</div>
       <div class="mi dg" onclick="delFile(${f.id})">从索引移除</div>
@@ -398,19 +416,20 @@ function cardHTML(f,showActions=true,collapsed=false){
     <div class="${infoCls}">
       <div class="kv" style="padding:0 14px">
         <b>文件名</b><span title="${esc(f.filename)}">${esc(f.filename)}</span>
-        <b>目标</b><span>${esc(f.target_dir||'—')}</span>
-        <b>别名</b><span>${esc(f.alias||'—')}</span>
-        <b>SHA256</b><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span>
-        <b>设计ID</b><span class="pid">${esc(f.design_id||'—')}</span>
-        <b>几何</b><span>${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</span>
+        ${aliasKV}
+        ${catKV}
+        <b>归档路径</b><span class="kv-val"><span class="kv-txt" title="${esc(f.target_dir||'')}">${esc(f.target_dir||'—')}</span><button class="kv-ico" title="在文件管理器中打开" onclick="openArchive(${f.id});event.stopPropagation()">📂</button></span>
+        <b>SHA256</b><span class="kv-val"><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span><button class="kv-ico" title="复制完整 SHA256" data-hash="${esc(f.sha256||'')}" onclick="copyHash(this);event.stopPropagation()">📋</button></span>
+        <b>MakeWorld</b><span class="pid">${esc(f.design_id||'—')}</span>
+        <b>模型信息</b><span>${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</span>
       </div>
       <div class="tag-input" style="margin:0 14px">
         <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id})">
         <button class="btn ghost sm" onclick="addTag(${f.id})">添加</button>
       </div>
       <div class="taglist" style="margin:6px 14px">${tags||'<span class="hint">无标签</span>'}</div>
-      <div class="attach-list" id="att-${f.id}" style="margin:0 14px 6px"></div>
     </div>
+    <div class="attach-list" id="att-${f.id}" style="margin:0 14px 6px"></div>
     <div class="card-toggle" onclick="toggleInfo(event)"><span class="tri">▼</span> <span class="tog-txt">${collapsed?'展开信息':'收起信息'}</span></div>
   </div>`;
 }
@@ -436,14 +455,23 @@ function toggleInfo(ev){
 function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<div class="sk-card"><div class="sk-bg sk-img"></div><div class="sk-bg sk-line w80"></div><div class="sk-bg sk-line w60"></div><div class="sk-bg sk-line w40"></div></div>`}s+='</div>';return s}
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
 async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
-function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议别名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>'}
+function renderPending(files){const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f,true,false)).join('')+'</div>';files.forEach(f=>loadAttachments(f.id))}
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');loadPending()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const ids=j.files.map(f=>f.id);if(!ids.length){toast('无待整理');return}const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();toast(`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`);loadPending()}
 function toggleReclass(id){const d=$('#reclass-'+id);d.style.display=d.style.display==='none'?'block':'none';if(d.style.display==='block')loadCategoryOptions(id)}
 async function loadCategoryOptions(id){const r=await fetch('/api/categories');const j=await r.json();const opts=[...j.ip.map(x=>'IP·'+x),...Object.keys(j.func||{})];$('#rc-cat-'+id).innerHTML='<option value="">选择分类...</option>'+opts.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
 async function reclassApply(id){const cat=$('#rc-cat-'+id).value;if(!cat){toast('请选择分类');return}await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});toast('分类已更新');loadPending()}
-async function llmClassify(id){const box=$('#llm-'+id);box.innerHTML='<div class="hint" style="padding:8px 0">正在调用模型分类...</div>';const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(j.error)}</div>`;return}box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span> ${j.is_new?'<span class="pill y">新分类建议</span>':'现有分类'} · ${esc(j.reason)}<br><button class="btn ok sm" style="margin-top:6px" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new})">${j.is_new?'创建新分类':'采用'}</button></div>`}
+async function llmClassify(id,btn){const currentCat=btn?(btn.getAttribute('data-cur')||''):'';const box=$('#llm-'+id);box.innerHTML='<div class="hint" style="padding:8px 0">正在调用模型分类...</div>';try{const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){const msg=j.error||'AI 分类失败';box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg);return}if(j.category===currentCat){box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span><br><div class="hint" style="margin-top:4px">与当前分类一致</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="cancelClassify(${id})">关闭</button></div></div>`;return}box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span> ${j.is_new?'<span class="pill y">新分类建议</span>':'现有分类'} · ${esc(j.reason)}<br><div style="margin-top:6px;display:flex;gap:6px"><button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new})">${j.is_new?'创建新分类':'采用'}</button><button class="btn ghost sm" onclick="cancelClassify(${id})">取消</button></div></div>`}catch(e){const msg='AI 分类请求失败：'+(e&&e.message?e.message:e);box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg)}}
 async function applyCategory(id,cat,isNew){const url=isNew?'/api/confirm-new-category':'/api/recategorize';const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat})});const j=await r.json();toast(j.message||'已应用分类');loadPending()}
+function cancelClassify(id){const b=document.getElementById('llm-'+id);if(b)b.innerHTML=''}
+function editCategory(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='cat-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitCategory(id)}else if(e.key==='Escape'){cancelEdit(id)}};inp.onblur=function(){commitCategory(id)};el.replaceWith(inp);inp.focus();inp.select()}
+async function commitCategory(id){const inp=document.getElementById('cat-in-'+id);if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:val})});toast('分类已更新，归档路径已重算');loadPending();if(typeof search==='function')search()}
+function cancelEdit(id){const inp=document.getElementById('cat-in-'+id);if(inp)inp.onblur=null;loadPending();if(typeof search==='function')search()}
+function editAlias(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='alias-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitAlias(id)}else if(e.key==='Escape'){cancelEdit(id)}};inp.onblur=function(){commitAlias(id)};el.replaceWith(inp);inp.focus();inp.select()}
+async function commitAlias(id){const inp=document.getElementById('alias-in-'+id);if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/set-alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,alias:val})});toast('归档名已更新');loadPending();if(typeof search==='function')search()}
+async function openArchive(id){const r=await fetch('/api/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('已在文件管理器中打开')}
+function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 SHA256 可复制');return}const done=()=>{toast('已复制 SHA256')};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(done).catch(()=>fallbackCopy(h,done))}else{fallbackCopy(h,done)}}
+function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
 
 // ===== Tag =====
 async function addTag(id){const inp=$('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';loadPending()}
@@ -451,9 +479,11 @@ async function removeTag(id,tag){const files=await(await fetch('/api/files')).js
 
 // ===== 缩略图/附件 =====
 function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();toast(j.ok?'缩略图已上传':'失败');loadPending()};inp.click()}
-function attachFile(id){const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();toast(j.ok?`附件已关联 ${j.saved.length}`:'失败');loadPending()};inp.click()}
-async function loadAttachments(id){const r=await fetch('/api/attachments?file_id='+id);const j=await r.json();const box=$('#att-'+id);if(!box)return;if(!j.attachments.length){box.innerHTML='';return}box.innerHTML='附件：'+j.attachments.map(a=>`<a href="/attachments/${a.id}" onclick="return false" title="${esc(a.abs_path)}">${esc(a.name)}</a><span class="x" onclick="delAttach(${a.id})">🗑</span>`).join(' ')}
-async function delAttach(aid){await fetch('/api/attachment-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:aid})});loadPending()}
+function attachFile(id){const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(`附件已关联 ${j.saved.length}`);refreshAttach(id)}else{toast('失败');loadPending()}};inp.click()}
+async function loadAttachments(id){const r=await fetch('/api/attachments?file_id='+id);const j=await r.json();const box=$('#att-'+id);if(!box)return;if(!j.attachments.length){box.innerHTML='';return}box.innerHTML='附件：'+j.attachments.map(a=>`<a href="/attachments/${a.id}" onclick="return false" title="${esc(a.rel_path||a.abs_path||'')}">${esc(a.name)}</a><span class="x" title="删除附件" onclick="delAttach(${a.id}, ${id})">🗑</span>`).join(' ')}
+// 添加/删除附件后，刷新当前所在视图中该卡片的附件列表（不依赖 pending 重渲染），保证待整理/模型库都及时同步
+function refreshAttach(id){loadAttachments(id);if(typeof loadStats==='function')loadStats()}
+async function delAttach(aid, fid){await fetch('/api/attachment-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:aid})});refreshAttach(fid)}
 async function delFile(id){if(!confirm('从索引移除（不删磁盘文件）？'))return;await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadPending()}
 
 // ===== 模型库（分页） =====
