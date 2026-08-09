@@ -84,14 +84,14 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
     "model": "qwen2.5:14b"
   },
   "paths": {
-    "library_root": "~/Downloads/3D模型库"
+    "library_root": "~/Downloads/3mf_data"
   }
 }
 ```
 
 - **base_url**：OpenAI 兼容端点。Ollama 填 `http://127.0.0.1:11434/v1`；DeepSeek 填 `https://api.deepseek.com/v1`。
 - **model**：模型名，如 `qwen2.5:14b`、`deepseek-chat`。
-- **library_root**：收藏目录，上传的 3MF 存 `00_待整理`，归档后按分类放入子目录。
+- **library_root**：模型根目录，上传的 3MF 存 `00_待整理`，归档后按分类放入子目录。
 
 ## 📂 目录结构
 

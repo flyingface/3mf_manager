@@ -41,7 +41,7 @@ import subcat               # 复用分类/子分类规则
 import mc_subcat
 
 cfg = llm_client.load_config()
-LIBRARY_ROOT = cfg["paths"].get("library_root") or os.path.join(os.path.expanduser("~"), "Downloads", "3D模型库")
+LIBRARY_ROOT = cfg["paths"].get("library_root") or os.path.join(os.path.expanduser("~"), "Downloads", "3mf_data")
 INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
 
 # ---------------------------------------------------------------
@@ -519,6 +519,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_stats()
         if p == "/api/files":
             return self._api_search(parse_qs(u.query))
+        if p == "/api/about":
+            return self._api_about()
         if p == "/api/categories":
             return self._api_categories()
         if p == "/api/config":
@@ -571,6 +573,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_recategorize(self._read_json())
         if p == "/api/return-pending":
             return self._api_return_pending(self._read_json())
+        if p == "/api/reset-library":
+            return self._api_reset_library(self._read_json())
         if p == "/api/open-folder":
             return self._api_open_folder(self._read_json())
         if p == "/api/set-alias":
@@ -650,6 +654,48 @@ class Handler(BaseHTTPRequestHandler):
         os.makedirs(LIBRARY_ROOT, exist_ok=True)
         os.makedirs(INBOX, exist_ok=True)
         self._send(200, {"ok": True})
+
+    def _api_reset_library(self, data):
+        """初始化模型根目录：清空目录下全部数据并重置索引。
+
+        安全设计：必须由前端二次确认，并传入与当前模型根目录逐字一致的路径
+        做比对，否则拒绝执行（避免误清空其它目录）。
+        """
+        path = (data.get("path") or "").strip()
+        if not path:
+            self._send(400, {"error": "需要在输入框中完整填写模型根目录路径以确认"}); return
+        root_abs = os.path.abspath(LIBRARY_ROOT)
+        given_abs = os.path.abspath(os.path.expanduser(path))
+        if given_abs != root_abs:
+            self._send(400, {"error": "路径与当前模型根目录不一致，已取消操作", "expected": LIBRARY_ROOT}); return
+        # 清空目录下所有内容（保留目录本身）
+        removed = 0
+        os.makedirs(root_abs, exist_ok=True)
+        for name in os.listdir(root_abs):
+            p = os.path.join(root_abs, name)
+            try:
+                if os.path.isdir(p) and not os.path.islink(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+                removed += 1
+            except OSError:
+                pass  # 跳过无法删除的项（如被占用的文件）
+        os.makedirs(INBOX, exist_ok=True)
+        # 重置索引（文件已清空，索引必须同步清空保持一致）
+        conn = db_conn()
+        conn.execute("DELETE FROM attachments")
+        conn.execute("DELETE FROM files")
+        conn.commit(); conn.close()
+        self._send(200, {"ok": True, "removed": removed, "root": LIBRARY_ROOT})
+
+    def _api_about(self):
+        """返回面向普通用户的「关于」说明（Markdown 文本）。"""
+        p = os.path.join(BASE, "ABOUT.md")
+        if not os.path.exists(p):
+            self._send(404, {"error": "about not found"}); return
+        with open(p, encoding="utf-8") as f:
+            self._send(200, {"markdown": f.read()})
 
     def _api_search(self, q):
         kw = q.get("q", [""])[0].strip()

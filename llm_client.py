@@ -23,7 +23,7 @@ DEFAULT_CONFIG = {
         "model": "",
     },
     "paths": {
-        "library_root": os.path.join(os.path.expanduser("~"), "Downloads", "3D模型库"),
+        "library_root": os.path.join(os.path.expanduser("~"), "Downloads", "3mf_data"),
     },
 }
 
