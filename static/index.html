@@ -319,11 +319,6 @@ input::placeholder{color:var(--tert)}
           <span class="hint">清空该目录下全部模型文件、子文件夹与索引（不可恢复）</span>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-h">关于</div>
-        <div class="hint" style="margin-bottom:12px">查看本软件的功能说明、使用规则、最近更新与版本信息。</div>
-        <button class="btn ghost" onclick="showAbout()">查看关于</button>
-      </div>
       <div class="panel"><button class="btn p" onclick="saveConfig()">保存配置</button><span id="cfgStatus" class="hint" style="margin-left:10px"></span></div>
     </section>
   </div>
@@ -355,11 +350,11 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2200)}
 
 // ===== 左侧导航 =====
-const NAV=[{k:'dash',i:'▦',l:'仪表盘'},{k:'pending',i:'⇪',l:'待整理'},{k:'library',i:'▤',l:'模型库'},{k:'chat',i:'◈',l:'对话'},{k:'settings',i:'⚙',l:'设置'}];
+const NAV=[{k:'dash',i:'▦',l:'仪表盘'},{k:'pending',i:'⇪',l:'待整理'},{k:'library',i:'▤',l:'模型库'},{k:'chat',i:'◈',l:'对话'},{k:'settings',i:'⚙',l:'设置'},{k:'about',i:'ℹ',l:'关于'}];
 const TITLES={dash:['仪表盘','资产总览与状态'],pending:['待整理','上传并确认归档'],library:['模型库','检索与管理模型'],chat:['智能对话','自然语言检索模型库'],settings:['设置','模型能力与路径']};
 function renderNav(){
   $('#nav').innerHTML='<div class="logo">3D</div>'+NAV.map(n=>
-    `<button class="ni" id="nav-${n.k}" onclick="switchTab('${n.k}')"><span>${n.i}</span><span class="lb">${n.l}</span></button>`).join('');
+    `<button class="ni" id="nav-${n.k}" onclick="${n.k==='about'?'showAbout()':"switchTab('"+n.k+"')"}"><span>${n.i}</span><span class="lb">${n.l}</span></button>`).join('');
 }
 function switchTab(name){
   ['dash','pending','library','chat','settings'].forEach(k=>{
