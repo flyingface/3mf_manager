@@ -359,7 +359,15 @@ function cardHTML(f,showActions=true,collapsed=false){
     ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
     ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
     <span class="pill">${f.size_mb}MB</span>`;
-  const stPill=f.status==='pending'?`<span class="pill y">待整理</span>`:f.status==='applied'?`<span class="pill" style="background:var(--ok-soft);color:var(--ok)">已归档</span>`:'';
+  // 状态显示：未归档且可操作→显示归档按钮；否则显示文字状态徽章
+  let statusArea='';
+  if(showActions&&f.status==='pending'){
+    statusArea=`<button class="btn ok sm" onclick="applyOne(${f.id})" title="归档到分类">归档</button>`;
+  }else if(f.status==='pending'){
+    statusArea=`<span class="pill y">待整理</span>`;
+  }else if(f.status==='applied'){
+    statusArea=`<span class="pill" style="background:var(--ok-soft);color:var(--ok)">已归档</span>`;
+  }
   return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
     <div class="card-hd">
       ${thumb}
@@ -367,8 +375,7 @@ function cardHTML(f,showActions=true,collapsed=false){
         <div class="rt">
           <div class="cname" title="${esc(f.filename)}">${esc(headTitle)}</div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-            ${stPill}
-            ${showActions?`<button class="btn ok sm" onclick="applyOne(${f.id})" title="归档到分类">归档</button>`:''}
+            ${statusArea}
             <div class="dotm" onclick="toggleMenu(event,${f.id})">⋯</div>
           </div>
         </div>
