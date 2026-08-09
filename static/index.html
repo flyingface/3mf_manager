@@ -480,7 +480,7 @@ function cardHTML(f,collapsed=false){
         <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id}, this)">
         <button class="btn ghost sm" onclick="addTag(${f.id}, this)">添加</button>
       </div>
-      <div class="taglist" style="margin:6px 14px">${tags||'<span class="hint">无标签</span>'}</div>
+      <div class="taglist" data-tag-id="${f.id}" style="margin:6px 14px">${tags||'<span class="hint">无标签</span>'}</div>
     </div>
     <div class="attach-list" id="att-${f.id}" data-att-id="${f.id}" style="margin:0 14px 6px"></div>
     <div class="card-toggle" onclick="toggleInfo(event)"><span class="tri">▼</span> <span class="tog-txt">${collapsed?'展开信息':'收起信息'}</span></div>
@@ -580,8 +580,17 @@ function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 S
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
 
 // ===== Tag =====
-async function addTag(id,el){const inp=el.closest('.card').querySelector('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);if(tags.some(t=>t===v)){toast('标签已关联');inp.value='';return}tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';toast('已添加标签');loadPending();if(typeof search==='function')search()}
-async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});loadPending();if(typeof search==='function')search()}
+async function addTag(id,el){const inp=el.closest('.card').querySelector('#tagin-'+id);const v=inp.value.trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);if(tags.some(t=>t===v)){toast('标签已关联');inp.value='';return}tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';toast('已添加标签');refreshTags(id)}
+async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});refreshTags(id)}
+// 局部刷新某文件的标签列表（仅更新该卡片 .taglist，不重渲染整个列表，保留编辑中的元素）
+async function refreshTags(id){
+  let f=null;
+  try{const files=await(await fetch('/api/files')).json();f=files.files.find(x=>x.id===id)}catch(e){return}
+  if(!f)return;
+  const html=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${id},'${esc(t)}')">×</span></span>`).join('')||'<span class="hint">无标签</span>';
+  document.querySelectorAll('[data-tag-id="'+id+'"]').forEach(tl=>tl.innerHTML=html);
+  if(typeof loadStats==='function')loadStats();
+}
 
 // ===== 缩略图/附件 =====
 function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();toast(j.ok?'缩略图已上传':'失败');loadPending()};inp.click()}
