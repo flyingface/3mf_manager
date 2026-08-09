@@ -769,6 +769,17 @@ class Handler(BaseHTTPRequestHandler):
             results.append({"name": fname, "ok": True, "file": rec, "is_duplicate": bool(dup_info), "duplicate_of": dup_info})
         self._send(200, {"results": results})
 
+    def _is_earliest_dup(self, conn, row):
+        """SHA256 重复且本行不是最早副本则返回 False（不可归档）。"""
+        s = (row["sha256"] or "").strip()
+        if not s:
+            return True
+        grp = conn.execute("SELECT id, created_at FROM files WHERE sha256=?", (s,)).fetchall()
+        if len(grp) <= 1:
+            return True
+        earliest = min(grp, key=lambda r: (r["created_at"] or "", r["id"]))
+        return earliest["id"] == row["id"]
+
     def _api_apply(self, data):
         ids = data.get("ids", [])
         do_rename = data.get("rename", True)
@@ -780,6 +791,9 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
             if not row or row["status"] == "applied":
                 results.append({"id": fid, "ok": False, "error": "不存在或已执行"}); continue
+            # 重复文件防护：SHA256 重复且非最早副本，不允许归档
+            if not self._is_earliest_dup(conn, row):
+                results.append({"id": fid, "ok": False, "error": "重复文件（非最早副本）不可归档", "skipped_duplicate": True}); continue
             old = row["abs_path"]
             if not os.path.exists(old):
                 results.append({"id": fid, "ok": False, "error": "源文件不存在"}); continue
