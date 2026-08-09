@@ -401,13 +401,13 @@ function cardHTML(f,collapsed=false){
   // 头部主标题：优先用别名（更短可读），无别名则用文件名（单行省略）
   const headTitle=(f.alias&&f.alias!==f.filename)?f.alias:f.filename;
   const metaPills=`
-    ${f.is_duplicate?`<span class="pill r" title="存在相同 SHA256 的文件">重复</span>`:''}
+    ${(f.is_duplicate&&!f.is_earliest)?`<span class="pill r" title="存在相同 SHA256 的文件，不可归档">重复</span>`:''}
     ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
     ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
     <span class="pill">${f.size_mb}MB</span>`;
   // 状态显示：归档按钮仅由「状态」决定（pending 显示，与所在界面无关）；其余状态显示文字徽章
   // 状态显示：pending 一律显示「归档」按钮；非最早副本的重复文件禁用该按钮
-  // （重复标记由上方 metaPills 的红色「重复」呈现，无需再用状态文字替代归档按钮）
+  // （红色「重复」标记只显示在不可归档的后进副本上；最早可归档副本不显示）
   let statusArea='';
   if(f.status==='pending'){
     const blocked = (f.is_duplicate && !f.is_earliest);
