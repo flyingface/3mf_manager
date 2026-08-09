@@ -87,7 +87,7 @@ input::placeholder{color:var(--tert)}
 .card-hd .th.empty{display:flex;align-items:center;justify-content:center;color:var(--tert);font-size:20px}
 .card-hd .cb{flex:1;min-width:0;display:flex;flex-direction:column}
 .card-hd .rt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.card-hd .rt .cname{font-weight:500;font-size:14px;word-break:break-all;flex:1;min-width:0}
+.card-hd .rt .cname{font-weight:500;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
 .card-hd .pill{margin:0}
 .pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d);margin:2px 4px 2px 0}
 .pill.cat{background:var(--ok-soft);color:var(--ok)}
@@ -351,9 +351,11 @@ function cardHTML(f,showActions=true,collapsed=false){
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
   const infoCls=collapsed?'card-info collapsed':'card-info';
   const thumb=f.thumb
-    ?`<img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="点击查看摆盘图">`
-    :`<div class="th empty">未上传</div>`;
+    ?`<img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="${esc(f.filename)}">`
+    :`<div class="th empty" title="${esc(f.filename)}">未上传</div>`;
   const catPill=f.category?`<span class="pill cat">${esc(f.category)}</span>`:'';
+  // 头部主标题：优先用别名（更短可读），无别名则用文件名（单行省略）
+  const headTitle=(f.alias&&f.alias!==f.filename)?f.alias:f.filename;
   const metaPills=`
     ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
     ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
@@ -364,7 +366,7 @@ function cardHTML(f,showActions=true,collapsed=false){
       ${thumb}
       <div class="cb">
         <div class="rt">
-          <div class="cname">${esc(f.filename)}</div>
+          <div class="cname" title="${esc(f.filename)}">${esc(headTitle)}</div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
             ${stPill}
             <div class="dotm" onclick="toggleMenu(event,${f.id})">⋯</div>
@@ -390,6 +392,7 @@ function cardHTML(f,showActions=true,collapsed=false){
     </div>
     <div class="${infoCls}">
       <div class="kv" style="padding:0 14px">
+        <b>文件名</b><span title="${esc(f.filename)}">${esc(f.filename)}</span>
         <b>目标</b><span>${esc(f.target_dir||'—')}</span>
         <b>别名</b><span>${esc(f.alias||'—')}</span>
         <b>SHA256</b><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span>
