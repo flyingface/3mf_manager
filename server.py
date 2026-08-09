@@ -569,6 +569,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_attachment_delete(self._read_json())
         if p == "/api/recategorize":
             return self._api_recategorize(self._read_json())
+        if p == "/api/return-pending":
+            return self._api_return_pending(self._read_json())
         if p == "/api/open-folder":
             return self._api_open_folder(self._read_json())
         if p == "/api/set-alias":
@@ -822,6 +824,21 @@ class Handler(BaseHTTPRequestHandler):
         conn.execute("UPDATE files SET category=?, target_dir=?, status='pending' WHERE id=?", (cat, target, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "category": cat, "target_dir": target})
+
+    def _api_return_pending(self, data):
+        """退回整理：把索引状态从 applied 推回 pending（仅在数据库中翻转状态，磁盘文件位置不变）。data: {id}"""
+        fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        conn = db_conn()
+        row = conn.execute("SELECT id, status FROM files WHERE id=?", (fid,)).fetchone()
+        if not row:
+            conn.close(); self._send(404, {"error": "not found"}); return
+        if row["status"] == "pending":
+            conn.close(); self._send(400, {"error": "已经是待整理状态"}); return
+        conn.execute("UPDATE files SET status='pending' WHERE id=?", (fid,))
+        conn.commit(); conn.close()
+        self._send(200, {"ok": True, "id": fid})
 
     def _api_open_folder(self, data):
         """在系统文件管理器中打开该文件的归档目录。data: {id}"""
