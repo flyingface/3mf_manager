@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  3MF Manager macOS 开机自启（launchd）示例
+
+  安装:
+    1. 把下面 USER 替换为你的用户名，DIR 替换为 3mf_manager 的实际路径
+    2. 拷贝到 ~/Library/LaunchAgents/com.mfmanager.plist
+    3. launchctl load ~/Library/LaunchAgents/com.mfmanager.plist
+    4. launchctl start com.mfmanager
+
+  卸载/停止:
+    launchctl unload ~/Library/LaunchAgents/com.mfmanager.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mfmanager</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/USER/WorkBuddy/2026-08-09-12-19-00/3mf_manager/.venv/bin/python</string>
+        <string>/Users/USER/WorkBuddy/2026-08-09-12-19-00/3mf_manager/server.py</string>
+        <string>8000</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/USER/WorkBuddy/2026-08-09-12-19-00/3mf_manager</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/USER/WorkBuddy/2026-08-09-12-19-00/3mf_manager/logs/launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/USER/WorkBuddy/2026-08-09-12-19-00/3mf_manager/logs/launchd.err</string>
+</dict>
+</plist>
