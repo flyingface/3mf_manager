@@ -826,19 +826,58 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "category": cat, "target_dir": target})
 
     def _api_return_pending(self, data):
-        """退回整理：把索引状态从 applied 推回 pending（仅在数据库中翻转状态，磁盘文件位置不变）。data: {id}"""
+        """退回整理：把已归档文件退回「待整理」。索引 status 翻回 pending，
+        并把主 .3mf 及其关联附件物理移回 00_待整理（INBOX）。data: {id}"""
         fid = data.get("id")
         if not fid:
             self._send(400, {"error": "need id"}); return
+        inbox = os.path.join(LIBRARY_ROOT, "00_待整理")
+        os.makedirs(inbox, exist_ok=True)
         conn = db_conn()
-        row = conn.execute("SELECT id, status FROM files WHERE id=?", (fid,)).fetchone()
+        row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
         if row["status"] == "pending":
             conn.close(); self._send(400, {"error": "已经是待整理状态"}); return
-        conn.execute("UPDATE files SET status='pending' WHERE id=?", (fid,))
+        # 1) 主文件移回 INBOX（冲突则加 _2/_3 后缀）
+        old_main = row["abs_path"] or ""
+        moved_main = None
+        if old_main and os.path.exists(old_main):
+            base, ext = os.path.splitext(os.path.basename(old_main))
+            dest = os.path.join(inbox, os.path.basename(old_main))
+            i = 2
+            while os.path.exists(dest):
+                dest = os.path.join(inbox, f"{base}_{i}{ext}"); i += 1
+            try:
+                shutil.move(old_main, dest)
+                moved_main = dest
+            except Exception as e:
+                conn.close(); self._send(500, {"error": f"移动主文件失败：{e}"}); return
+        new_path = moved_main or old_main
+        new_name = os.path.basename(new_path)
+        # 2) 关联附件一并移回 INBOX，更新其 abs_path/rel_path
+        moved_att = []
+        for a in conn.execute("SELECT * FROM attachments WHERE file_id=?", (fid,)).fetchall():
+            ap = a["abs_path"] or ""
+            if not ap or not os.path.exists(ap):
+                continue
+            ab, ae = os.path.splitext(os.path.basename(ap))
+            adest = os.path.join(inbox, os.path.basename(ap))
+            j = 2
+            while os.path.exists(adest):
+                adest = os.path.join(inbox, f"{ab}_{j}{ae}"); j += 1
+            try:
+                shutil.move(ap, adest)
+                rel = os.path.relpath(adest, LIBRARY_ROOT)
+                conn.execute("UPDATE attachments SET abs_path=?, rel_path=? WHERE id=?", (adest, rel, a["id"]))
+                moved_att.append(os.path.basename(adest))
+            except Exception:
+                pass
+        # 3) 更新索引：物理位置回到 INBOX，状态 pending（保留 category/target_dir/alias 便于再次归档）
+        conn.execute("UPDATE files SET abs_path=?, filename=?, folder=?, status='pending' WHERE id=?",
+                     (new_path, new_name, "00_待整理", fid))
         conn.commit(); conn.close()
-        self._send(200, {"ok": True, "id": fid})
+        self._send(200, {"ok": True, "id": fid, "new_path": new_path, "moved_attachments": moved_att})
 
     def _api_open_folder(self, data):
         """在系统文件管理器中打开该文件的归档目录。data: {id}"""
