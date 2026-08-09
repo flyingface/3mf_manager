@@ -373,7 +373,6 @@ function cardHTML(f,showActions=true,collapsed=false){
           </div>
         </div>
         <div class="pillgrp">${catPill}${metaPills}</div>
-        <div class="meta"><span class="pid">${esc(f.design_id||'—')}</span> · ${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</div>
       </div>
     </div>
     <div class="ctx" id="ctx-${f.id}" style="display:none">
@@ -395,6 +394,8 @@ function cardHTML(f,showActions=true,collapsed=false){
         <b>目标</b><span>${esc(f.target_dir||'—')}</span>
         <b>别名</b><span>${esc(f.alias||'—')}</span>
         <b>SHA256</b><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span>
+        <b>设计ID</b><span class="pid">${esc(f.design_id||'—')}</span>
+        <b>几何</b><span>${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</span>
       </div>
       <div class="tag-input" style="margin:0 14px">
         <input type="text" id="tagin-${f.id}" placeholder="+ 标签" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id})">
