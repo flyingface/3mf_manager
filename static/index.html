@@ -129,12 +129,16 @@ input::placeholder{color:var(--tert)}
 .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .tag-input{display:flex;gap:6px;margin-top:8px}
 .alias-input{width:100%;margin-top:6px;font-size:13px}
-/* ---- 归档路径选择器 ---- */
-.target-picker{border-top:1px solid var(--border);padding:10px 14px;background:var(--bg2)}
-.target-picker .tp-head{font-size:12px;color:var(--muted);margin-bottom:6px}
-.target-picker .tp-sel{width:100%;margin-top:0}
-.target-picker .cat-input{width:100%;margin-top:6px;box-sizing:border-box}
-.target-picker .tp-actions{display:flex;gap:8px;margin-top:8px}
+/* ---- 归档路径选择器（弹出浮层） ---- */
+.target-pop{position:absolute;z-index:60;background:var(--card);border:1px solid var(--border2);border-radius:12px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:10px 12px;width:calc(100% - 28px);box-sizing:border-box}
+.target-pop .tp-head{font-size:12px;color:var(--muted);margin-bottom:6px}
+.target-pop .tp-list{max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg2)}
+.target-pop .tp-item{padding:6px 9px;font-size:12px;cursor:pointer;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.target-pop .tp-item:hover{background:var(--primary-soft);color:var(--primary)}
+.target-pop .tp-item.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+.target-pop .tp-loading{padding:8px 9px;font-size:12px;color:var(--tert)}
+.target-pop .cat-input{width:100%;margin-top:7px;box-sizing:border-box}
+.target-pop .tp-actions{display:flex;gap:8px;margin-top:8px}
 /* ---- 查看器 ---- */
 .viewer-mask{position:fixed;inset:0;background:rgba(15,23,42,.72);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(3px)}
 .viewer-mask.show{display:flex}
@@ -492,7 +496,14 @@ function toggleMenu(ev,id,el){
   document.querySelectorAll('.ctx').forEach(x=>x.style.display='none');
   m.style.display=vis?'none':'block';
 }
-document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.ctx')&&!e.target.closest('.dotm')){document.querySelectorAll('.ctx').forEach(x=>x.style.display='none')}});
+document.addEventListener('click',function(e){
+  var t=e.target;
+  if(!t||!t.closest)return;
+  // 关闭下拉菜单：点击不在菜单/触发按钮内
+  if(!t.closest('.ctx')&&!t.closest('.dotm')){document.querySelectorAll('.ctx').forEach(x=>x.style.display='none')}
+  // 关闭归档路径浮层：点击不在任何浮层内
+  if(!t.closest('.target-pop')){document.querySelectorAll('.target-pop').forEach(x=>x.remove())}
+});
 function toggleInfo(ev){
   ev=ev||window.event;var btn=ev.currentTarget||ev.target;
   if(!btn||!btn.closest)return;
@@ -521,31 +532,38 @@ function editAlias(id,el){const cur=el.getAttribute('data-cur')||'';const inp=do
 async function commitAlias(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/set-alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,alias:val})});toast('归档名已更新');loadPending();if(typeof search==='function')search()}
 function editTargetDir(id,el){
   const card=el.closest('.card'); if(!card)return;
+  // 关闭其它归档路径浮层
+  document.querySelectorAll('.target-pop').forEach(x=>x.remove());
   const cur=(el.getAttribute('data-cur')||'').trim();
-  if(card.querySelector('#tgt-picker-'+id))return; // 已打开
   const p=document.createElement('div');
-  p.className='target-picker'; p.id='tgt-picker-'+id;
-  p.innerHTML=`<div class="tp-head">归档路径：从已有目录选择，或在其下继续输入子路径</div>
-    <select id="tp-sel-${id}" class="alias-input tp-sel" title="选择已存在的目录作为基础"></select>
-    <input id="tp-in-${id}" class="cat-input" value="${esc(cur)}" placeholder="在所选路径下继续输入子路径（如 /新系列/xx）">
+  p.className='target-pop'; p.id='tgt-picker-'+id;
+  p.innerHTML=`<div class="tp-head">归档路径：选择已有目录，或在其下输入子路径</div>
+    <div class="tp-list" id="tp-list-${id}"><div class="tp-loading">加载目录中…</div></div>
+    <input id="tp-in-${id}" class="cat-input" value="${esc(cur)}" placeholder="选目录后在此继续输入子路径（如 新系列/xx）">
     <div class="tp-actions">
       <button class="btn ok sm" onclick="commitTargetDir(${id})">应用</button>
       <button class="btn ghost sm" onclick="cancelTargetPicker(${id})">取消</button>
     </div>`;
+  // 定位到点击的 span 附近（绝对定位在卡片内）
   card.appendChild(p);
+  const r=el.getBoundingClientRect(), cr=card.getBoundingClientRect();
+  p.style.top=Math.max(4, (r.bottom-cr.top)+6)+'px';
+  p.style.left='14px';
   loadTargetDirs(id, cur);
 }
 async function loadTargetDirs(id, cur){
   let dirs=[];
   try{const r=await fetch('/api/dirs');const j=await r.json();dirs=j.dirs||[]}catch(e){dirs=[]}
-  const sel=document.getElementById('tp-sel-'+id); if(!sel)return;
-  sel.innerHTML='<option value="">（模型根目录 / 根）</option>'+dirs.map(d=>`<option value="${esc(d.path)}">${esc(d.path)}</option>`).join('');
-  sel.onchange=function(){
-    const base=this.value.trim(); const inp=document.getElementById('tp-in-'+id); if(!inp)return;
-    // 选择已有目录后：基础路径 + 斜杠，用户可继续输入子路径
-    inp.value = base ? base+'/' : '';
-    inp.focus();
-  };
+  const list=document.getElementById('tp-list-'+id); if(!list)return;
+  const items=[{path:'',label:'（模型根目录 / 根）'}].concat(dirs.map(d=>({path:d.path,label:d.path})));
+  list.innerHTML=items.map((it,i)=>`<div class="tp-item" data-path="${esc(it.path)}" onclick="pickTargetDir(${id},'${esc(it.path)}')">${esc(it.label)}</div>`).join('');
+}
+function pickTargetDir(id, path){
+  const inp=document.getElementById('tp-in-'+id); if(!inp)return;
+  // 高亮当前项
+  document.querySelectorAll('#tgt-picker-'+id+' .tp-item').forEach(x=>x.classList.toggle('on', x.getAttribute('data-path')===path));
+  inp.value = path ? path+'/' : '';
+  inp.focus();
 }
 function cancelTargetPicker(id){const el=document.getElementById('tgt-picker-'+id);if(el)el.remove()}
 async function commitTargetDir(id){
