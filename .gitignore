@@ -19,6 +19,7 @@ htmlcov/
 .venv/
 build/
 dist/
+uv.lock
 
 # ---- 系统 ----
 .DS_Store
