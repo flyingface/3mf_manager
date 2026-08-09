@@ -579,6 +579,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_open_folder(self._read_json())
         if p == "/api/set-alias":
             return self._api_set_alias(self._read_json())
+        if p == "/api/set-target":
+            return self._api_set_target(self._read_json())
         self._send(404, {"error": "not found"})
 
     def _serve_file(self, fp, fallback="application/octet-stream"):
@@ -983,6 +985,38 @@ class Handler(BaseHTTPRequestHandler):
         conn.execute("UPDATE files SET alias=? WHERE id=?", (alias, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "alias": alias})
+
+    def _api_set_target(self, data):
+        """手动设置归档路径（可含子目录）。data: {id, target_dir}
+
+        仅待整理状态可改；路径必须是相对路径（可含子目录），禁止绝对路径、
+        父级穿越(..)、空串（允许传空以回退到分类默认路径）。
+        """
+        fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        raw_in = (data.get("target_dir") or "").strip()
+        # 显式拒绝绝对路径（以 / 或 \\ 开头）
+        if raw_in.startswith("/") or raw_in.startswith("\\"):
+            self._send(400, {"error": "归档路径不合法（仅支持相对子目录路径）"}); return
+        raw = raw_in.strip("/\\")
+        conn = db_conn()
+        row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+        if not row:
+            conn.close(); self._send(404, {"error": "not found"}); return
+        if row["status"] != "pending":
+            conn.close(); self._send(400, {"error": "已归档文件不可修改归档路径"}); return
+        if not raw:
+            # 空路径：回退到分类默认路径
+            target = target_relpath(row["category"], row["filename"], row["title"], row["folder"]) if row["category"] else ""
+        else:
+            # 安全校验：不允许父级穿越(..)
+            if ".." in raw.split("/") or ".." in raw.split("\\"):
+                conn.close(); self._send(400, {"error": "归档路径不合法（仅支持相对子目录路径）"}); return
+            target = raw
+        conn.execute("UPDATE files SET target_dir=? WHERE id=?", (target, fid))
+        conn.commit(); conn.close()
+        self._send(200, {"ok": True, "target_dir": target})
 
     def _api_set_tags(self, data):
         fid = data.get("id"); tags = data.get("tags", [])

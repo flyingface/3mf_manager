@@ -428,6 +428,10 @@ function cardHTML(f,collapsed=false){
   const reclassMenu = editable
     ? `<div class="mi" onclick="toggleReclass(${f.id}, this)">手动改分类</div>`
     : '';
+  // 归档路径：待整理可编辑（允许输入子目录路径）、无「打开」图标；已归档只读、显示「打开」图标
+  const targetKV = editable
+    ? `<b>归档路径</b><span class="kv-val"><span id="target-${f.id}" class="kv-txt cat-edit" title="点击编辑归档路径（可含子目录）" data-cur="${esc(f.target_dir||'')}" onclick="editTargetDir(${f.id}, this);event.stopPropagation()">${esc(f.target_dir||'—')}</span></span>`
+    : `<b>归档路径</b><span class="kv-val"><span class="kv-txt" title="${esc(f.target_dir||'')}">${esc(f.target_dir||'—')}</span><button class="kv-ico" title="在文件管理器中打开" onclick="openArchive(${f.id});event.stopPropagation()">📂</button></span>`;
   return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
     <div class="card-hd">
       ${thumb}
@@ -457,7 +461,7 @@ function cardHTML(f,collapsed=false){
         <b>文件名</b><span title="${esc(f.filename)}">${esc(f.filename)}</span>
         ${aliasKV}
         ${catKV}
-        <b>归档路径</b><span class="kv-val"><span class="kv-txt" title="${esc(f.target_dir||'')}">${esc(f.target_dir||'—')}</span><button class="kv-ico" title="在文件管理器中打开" onclick="openArchive(${f.id});event.stopPropagation()">📂</button></span>
+        ${targetKV}
         <b>SHA256</b><span class="kv-val"><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span><button class="kv-ico" title="复制完整 SHA256" data-hash="${esc(f.sha256||'')}" onclick="copyHash(this);event.stopPropagation()">📋</button></span>
         <b>MakeWorld</b><span class="pid">${esc(f.design_id||'—')}</span>
         <b>模型信息</b><span>${f.vertices?f.vertices.toLocaleString()+' 顶':''}${f.triangles?' / '+f.triangles.toLocaleString()+' 面':''}</span>
@@ -509,6 +513,8 @@ async function commitCategory(id,inp){if(!inp||inp.dataset.done)return;inp.datas
 function cancelEdit(id,inp){if(inp)inp.onblur=null;loadPending();if(typeof search==='function')search()}
 function editAlias(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='alias-in-'+id;inp.value=cur;inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitAlias(id,this)}else if(e.key==='Escape'){cancelEdit(id,this)}};inp.onblur=function(){commitAlias(id,this)};el.replaceWith(inp);inp.focus();inp.select()}
 async function commitAlias(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();await fetch('/api/set-alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,alias:val})});toast('归档名已更新');loadPending();if(typeof search==='function')search()}
+function editTargetDir(id,el){const cur=el.getAttribute('data-cur')||'';const inp=document.createElement('input');inp.type='text';inp.id='target-in-'+id;inp.value=cur;inp.placeholder='例如 IP·高达/xx 或 xx/yy';inp.className='cat-input';inp.style.flex='1';inp.style.minWidth='0';inp.onkeydown=function(e){if(e.key==='Enter'){commitTargetDir(id,this)}else if(e.key==='Escape'){cancelEdit(id,this)}};inp.onblur=function(){commitTargetDir(id,this)};el.replaceWith(inp);inp.focus();inp.select()}
+async function commitTargetDir(id,inp){if(!inp||inp.dataset.done)return;inp.dataset.done='1';const val=inp.value.trim();const r=await fetch('/api/set-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,target_dir:val})});const j=await r.json();if(!r.ok){toast(j.error||'设置归档路径失败');loadPending();return}toast('归档路径已更新');loadPending();if(typeof search==='function')search()}
 async function openArchive(id){const r=await fetch('/api/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('已在文件管理器中打开')}
 function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 SHA256 可复制');return}const done=()=>{toast('已复制 SHA256')};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(done).catch(()=>fallbackCopy(h,done))}else{fallbackCopy(h,done)}}
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
