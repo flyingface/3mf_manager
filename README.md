@@ -1,0 +1,139 @@
+# 3MF Manager
+
+本地 3D 打印文件管理器 — 解析、分类、重命名、检索并整理你本地来自 MakerWorld 的 3MF 文件。
+
+![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![deps](https://img.shields.io/badge/deps-零第三方依赖-success)
+
+**零第三方运行时依赖**（纯 Python 标准库 + SQLite），可选接入任意 OpenAI 兼容的 LLM（本地 Ollama/vLLM、DeepSeek、通义等）获得智能分类、语义检索与多轮对话能力。
+
+## ✨ 功能
+
+| 能力 | 说明 |
+|---|---|
+| **上传** | 页面拖拽/选择上传 3MF，复制到收藏目录，自动解析 |
+| **解析** | 提取标题/作者/设计ID/顶点/三角面/切片/版型（字节级计数，极快） |
+| **预分类** | 规则分类 + 可选 LLM 模型辅助分类；现有分类不满足可**新增分类建议**，确认后执行 |
+| **归档** | 一键移动（分类罗盘）+ 按别名重命名，更新后台 SQLite 索引 |
+| **Hash 去重** | 上传时 SHA-256 重复自动检测并标红提示 |
+| **Tag** | 每个文件可增删自定义标签 |
+| **查询** | 全文/分类/tag/hash/设计ID 搜索，显示本地磁盘绝对路径 |
+| **语义搜索 + 对话** | 基于 LLM 的自然语言检索与多轮对话智能体 |
+| **附件关联** | 可为 3MF 关联非 3MF 附件（打印说明、STL、PDF 等） |
+| **缩略图** | 可选上传本地图片关联（不强制；可自行下载官方缩略图上传） |
+| **仪表盘** | 资产总览、分类分布、Hash 重复提示 |
+| **设置** | 模型能力（Base URL / Key / 模型名）+ 本地路径可视化配置 |
+
+## 🚀 快速开始
+
+### 依赖
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/)（包管理，可选但推荐）
+- macOS / Linux（Windows 部分支持）
+
+### 安装与运行
+
+```bash
+# 1. 安装依赖（uv 方式，推荐）
+uv sync --dev
+
+# 2. 前台运行（开发）
+uv run mfmanager            # 默认 http://127.0.0.1:8000
+uv run mfmanager 9000       # 指定端口
+
+# 或直接运行
+python3 server.py 8000
+
+# 3. 浏览器打开
+open http://127.0.0.1:8000
+```
+
+### 后台运行（服务化）+ 一键启停
+
+```bash
+./service.sh start      # 启动（后台守护）
+./service.sh stop       # 停止
+./service.sh status     # 查看运行状态
+./service.sh restart    # 重启
+./service.sh logs       # 查看日志
+```
+
+> `service.sh` 使用 `launchd`（macOS）或 `nohup` 守护进程，PID 与日志落在 `./run/` 与 `./logs/`。
+
+## 🧪 运行测试
+
+```bash
+uv run pytest                # 或 uv run pytest tests/ -v
+uv run pytest --cov=.        # 带覆盖率
+```
+
+## ⚙️ 配置
+
+首次启动在 `设置` 页配置，或直接编辑 `config.json`：
+
+```json
+{
+  "llm": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "api_key": "",
+    "model": "qwen2.5:14b"
+  },
+  "paths": {
+    "library_root": "~/Downloads/3D模型库"
+  }
+}
+```
+
+- **base_url**：OpenAI 兼容端点。Ollama 填 `http://127.0.0.1:11434/v1`；DeepSeek 填 `https://api.deepseek.com/v1`。
+- **model**：模型名，如 `qwen2.5:14b`、`deepseek-chat`。
+- **library_root**：收藏目录，上传的 3MF 存 `00_待整理`，归档后按分类放入子目录。
+
+## 📂 目录结构
+
+```
+3mf_manager/
+├── server.py           # 后端 HTTP 服务（内置 http.server + sqlite3）
+├── llm_client.py       # OpenAI 兼容 LLM 客户端 + 会话管理
+├── parse_3mf.py        # 3MF 解析器（ZIP/XML，字节级几何计数）
+├── subcat.py           # 分类规则库
+├── mc_subcat.py        # Minecraft 子分类
+├── runner.py           # CLI 入口
+├── static/index.html   # 前端单页应用
+├── tests/              # pytest 测试套件
+├── service.sh          # 一键启停脚本
+├── pyproject.toml      # uv 打包/依赖配置
+├── config.json         # 运行时配置（git 忽略）
+├── library.db          # SQLite 索引（自动生成，git 忽略）
+├── thumbs/ attachments/ # 运行时产物（git 忽略）
+└── LICENSE             # MIT
+```
+
+## 📚 文档
+
+- [架构说明](ARCHITECTURE.md)
+- [参与贡献](CONTRIBUTING.md)
+- [更新日志](CHANGELOG.md)
+
+## 🔌 API 一览
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/upload` | 上传并解析、预分类（含 hash 重复检测） |
+| POST | `/api/apply` | 确认归档（移动 + 重命名） |
+| POST | `/api/llm-classify` | LLM 模型辅助分类（含新分类建议） |
+| POST | `/api/confirm-new-category` | 确认 LLM 新分类并落地 |
+| POST | `/api/recategorize` | 手动重选分类 |
+| POST | `/api/tags` | 设标签 |
+| POST | `/api/attach` | 关联附件 |
+| POST | `/api/thumbnail` | 上传缩略图 |
+| POST | `/api/chat` | 多轮对话智能体 |
+| POST | `/api/search-llm` | 语义检索 |
+| GET | `/api/files` | 查询（q/cat/status/tag/design_id） |
+| GET | `/api/stats` | 仪表盘统计 |
+| GET | `/api/config` | 读取配置 |
+
+## 已知限制
+- MakerWorld 官网有 Cloudflare 反爬，**自动抓取官方缩略图不可行**，改为用户自行上传。
+- 数据库 `library.db` 为单机 SQLite，适合个人使用。
+
+## 📄 许可
+[MIT](LICENSE) © 3MF Manager Contributors
