@@ -686,6 +686,11 @@ class Handler(BaseHTTPRequestHandler):
         conn = db_conn()
         conn.execute("DELETE FROM attachments")
         conn.execute("DELETE FROM files")
+        # 重置自增 id 计数，让后续上传的 id 从 1 重新编号（完全恢复新装状态）
+        try:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('files','attachments')")
+        except sqlite3.OperationalError:
+            pass  # 表尚无自增记录时该表不存在，忽略
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "removed": removed, "root": LIBRARY_ROOT})
 
