@@ -153,6 +153,8 @@ input::placeholder{color:var(--tert)}
 .viewer-nav{display:flex;align-items:center;gap:6px;color:var(--muted)}
 .viewer img{max-width:88vw;max-height:calc(88vh - 90px);object-fit:contain;background:var(--bg2)}
 .viewer-caption{padding:8px 14px;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}
+.viewer-head .vd{border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--muted);padding:2px 6px;border-radius:6px;transition:.15s}
+.viewer-head .vd:hover{background:var(--err-soft);color:var(--err)}
 /* ---- 对话 ---- */
 .chat-box{display:flex;flex-direction:column;height:480px;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--bg)}
 .chat-msgs{flex:1;overflow-y:auto;padding:16px}
@@ -345,6 +347,7 @@ input::placeholder{color:var(--tert)}
     <div class="viewer-head">
       <span id="viewerTitle"></span>
       <span class="viewer-nav"><button onclick="viewerPrev()">◀</button><span id="viewerIdx"></span><button onclick="viewerNext()">▶</button></span>
+      <button id="viewerDel" class="vd" title="删除缩略图" style="display:none" onclick="deleteThumb()">🗑</button>
       <button onclick="closeViewer()">✕</button>
     </div>
     <img id="viewerImg" src="" alt="">
@@ -658,12 +661,13 @@ async function loadDash(){const r=await fetch('/api/stats');const j=await r.json
 }
 
 // ===== 查看器 =====
-let viewerFiles=[],viewerIdx=0;
-async function openViewer(fileId){const r=await fetch('/api/files');const j=await r.json();const f=j.files.find(x=>x.id==fileId);if(!f)return;viewerFiles=[];if(f.thumb)viewerFiles.push({url:'/thumbs/'+f.thumb,label:'模型预览'});(f.plate_imgs||'').split(',').filter(Boolean).forEach(p=>viewerFiles.push({url:'/thumbs/'+p,label:'摆盘图'}));if(!viewerFiles.length){toast('无摆盘图');return}viewerIdx=0;showViewerImage();$('#viewerMask').classList.add('show')}
-function showViewerImage(){if(!viewerFiles.length)return;const v=viewerFiles[viewerIdx];$('#viewerImg').src=v.url;$('#viewerCaption').textContent=v.label;$('#viewerIdx').textContent=(viewerIdx+1)+' / '+viewerFiles.length}
+let viewerFiles=[],viewerIdx=0,viewerFileId=0;
+async function openViewer(fileId){const r=await fetch('/api/files');const j=await r.json();const f=j.files.find(x=>x.id==fileId);if(!f)return;viewerFileId=fileId;viewerFiles=[];if(f.thumb)viewerFiles.push({url:'/thumbs/'+f.thumb,label:'模型预览',isThumb:true});(f.plate_imgs||'').split(',').filter(Boolean).forEach(p=>viewerFiles.push({url:'/thumbs/'+p,label:'摆盘图',isThumb:false}));if(!viewerFiles.length){toast('无摆盘图');return}viewerIdx=0;showViewerImage();$('#viewerMask').classList.add('show')}
+function showViewerImage(){if(!viewerFiles.length)return;const v=viewerFiles[viewerIdx];$('#viewerImg').src=v.url;$('#viewerCaption').textContent=v.label;$('#viewerIdx').textContent=(viewerIdx+1)+' / '+viewerFiles.length;$('#viewerDel').style.display=v.isThumb?'':'none'}
 function viewerNext(){if(viewerFiles.length)viewerIdx=(viewerIdx+1)%viewerFiles.length;showViewerImage()}
 function viewerPrev(){if(viewerFiles.length)viewerIdx=(viewerIdx-1+viewerFiles.length)%viewerFiles.length;showViewerImage()}
 function closeViewer(e){if(e&&e.target!==e.currentTarget)return;$('#viewerMask').classList.remove('show')}
+async function deleteThumb(){if(!viewerFileId)return;if(!confirm('确定删除该缩略图？将清空缩略图并删除图片文件。'))return;const r=await fetch('/api/delete-thumb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:viewerFileId})});const j=await r.json();if(j.ok){toast('缩略图已删除');closeViewer();loadPending();if(typeof search==='function')search()}else{toast('删除失败：'+(j.error||'未知错误'))}}
 document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev();if(e.key==='Escape')closeViewer()}})
 
 // ===== 设置 =====

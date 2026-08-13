@@ -617,6 +617,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_delete(self._read_json())
         if p == "/api/thumbnail":
             return self._api_thumbnail()
+        if p == "/api/delete-thumb":
+            return self._api_delete_thumb(self._read_json())
         if p == "/api/llm-classify":
             return self._api_llm_classify(self._read_json())
         if p == "/api/confirm-new-category":
@@ -1182,6 +1184,26 @@ class Handler(BaseHTTPRequestHandler):
         conn.execute("UPDATE files SET thumb=? WHERE id=?", (tname, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "thumb": tname})
+
+    def _api_delete_thumb(self, data):
+        """删除缩略图：清空 files.thumb 并删除 thumbs/ 中的图片文件。"""
+        fid = data.get("id")
+        conn = db_conn()
+        row = conn.execute("SELECT thumb FROM files WHERE id=?", (fid,)).fetchone()
+        if not row:
+            conn.close(); self._send(404, {"error": "file not found"}); return
+        tname = row["thumb"]
+        if tname:
+            tp = os.path.join(THUMB_DIR, tname)
+            if os.path.exists(tp):
+                try:
+                    os.remove(tp)
+                except Exception:
+                    pass
+            conn.execute("UPDATE files SET thumb='' WHERE id=?", (fid,))
+            conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
 
     # ---- 附件 ----
     def _api_attach(self):
