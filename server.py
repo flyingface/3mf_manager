@@ -383,10 +383,12 @@ def attachment_full_path(row):
 # ---------------------------------------------------------------
 # LLM 增强功能
 # ---------------------------------------------------------------
-def llm_classify(info, existing_categories, rule_category):
+def llm_classify(info, existing_categories, rule_category, hint=""):
     """用 LLM 判断：现有分类是否合适；不合适则给出新分类建议。
+    hint: 用户补充分类提示（可选）。非空时模型优先参考该提示分类；留空走默认逻辑。
     返回 {"ok":bool,"category":str,"reason":str,"is_new":bool}
     """
+    hint = (hint or "").strip()
     existing = ", ".join(sorted(set(existing_categories))) or "（无）"
     sys_prompt = (
         "你是 3D 打印模型分类助手。根据给定的模型信息，判断最合适的分类。\n"
@@ -395,7 +397,8 @@ def llm_classify(info, existing_categories, rule_category):
         "规则：\n"
         "1. 若能从现有分类中找到合适项，返回该分类名，is_new=false。\n"
         "2. 若现有分类都不合适，返回一个简洁的新分类名（如 '手办/宠物小精灵' 或 'IP·某某'），is_new=true。\n"
-        "3. 分类名尽量沿用现有体系风格。"
+        "3. 分类名尽量沿用现有体系风格。\n"
+        "4. 若模型信息中的专有名词、角色、IP、作品名等你不理解，可通过网络搜索确认其类别与常见归类后再判断，不要凭猜测分类。"
     )
     user_msg = (
         f"模型信息：\n文件名：{info.get('filename','')}\n"
@@ -403,8 +406,13 @@ def llm_classify(info, existing_categories, rule_category):
         f"设计ID：{info.get('design_id','')}\n顶点/三角面：{info.get('vertices',0)}/{info.get('triangles',0)}\n"
         f"规则分类结果：{rule_category}\n\n"
         f"现有分类：{existing}\n\n"
-        "请判断该模型的最佳分类。"
     )
+    if hint:
+        user_msg += (
+            f"用户的分类提示：{hint}\n"
+            "请优先结合上述用户提示进行判断；若提示已明确指定目标分类，应优先采纳该分类。\n\n"
+        )
+    user_msg += "请判断该模型的最佳分类。"
     raw = llm_client.chat([
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": user_msg},
@@ -1169,6 +1177,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---- LLM ----
     def _api_llm_classify(self, data):
         fid = data.get("id")
+        hint = str(data.get("hint") or "").strip()
         if not llm_client.llm_configured():
             self._send(400, {"error": "LLM 未配置"})
             return
@@ -1183,7 +1192,7 @@ class Handler(BaseHTTPRequestHandler):
         existing = [r["category"] for r in conn.execute("SELECT DISTINCT category FROM files WHERE category!=''")]
         conn.close()
         try:
-            res = llm_classify(info, existing, info["category"])
+            res = llm_classify(info, existing, info["category"], hint)
             res["id"] = fid
             self._send(200, res)
         except Exception as e:
