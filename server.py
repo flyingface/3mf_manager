@@ -1112,7 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
         _, fname, data = files[0]
         ext = os.path.splitext(fname)[1].lower() or ".png"
         if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-            self._send(400, {"error": "图片格式不支持"}); return
+            self._send(400, {"error": "仅支持 PNG/JPG/WebP/GIF 图片（HEIC/BMP 等请先转成 JPG 再上传）"}); return
         conn = db_conn()
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
