@@ -280,6 +280,50 @@ def make_alias(filename, title=""):
 # ---------------------------------------------------------------
 # SQLite
 # ---------------------------------------------------------------
+def _sniff_image_type(data):
+    """按文件内容识别图片格式（不依赖扩展名）。返回标准扩展名或 None。"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if data[:4] in (b"GIF8",):
+        return ".gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    if data[4:8] == b"ftyp":
+        brand = data[8:12]
+        if brand in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"):
+            return ".heic"
+    return None
+
+
+def _convert_to_jpeg(data, ext):
+    """用系统工具把不支持的图片（HEIC/BMP/TIFF 等）转成 JPEG（macOS sips / Linux ImageMagick）。
+    返回 (jpeg_bytes, ".jpg")；无法转换返回 None。零第三方依赖。"""
+    import tempfile, subprocess, shutil
+    if ext not in (".heic", ".heif", ".bmp", ".tif", ".tiff"):
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "in" + ext)
+        dst = os.path.join(td, "out.jpg")
+        with open(src, "wb") as f:
+            f.write(data)
+        cmds = []
+        if shutil.which("sips"):
+            cmds.append(["sips", "-s", "format", "jpeg", src, "--out", dst])
+        if shutil.which("magick") or shutil.which("convert"):
+            cmds.append([shutil.which("magick") or "convert", src, dst])
+        for cmd in cmds:
+            try:
+                r = subprocess.run(cmd, capture_output=True, timeout=30)
+                if r.returncode == 0 and os.path.exists(dst):
+                    with open(dst, "rb") as f:
+                        return f.read(), ".jpg"
+            except Exception:
+                pass
+    return None
+
+
 def db_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -1110,9 +1154,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "need image"}); return
         fid = int(fields.get("id", 0))
         _, fname, data = files[0]
-        ext = os.path.splitext(fname)[1].lower() or ".png"
+        # 按文件内容识别格式（不依赖扩展名），HEIC/BMP/TIFF 等自动转 JPEG
+        ext = _sniff_image_type(data)
+        if ext is None:
+            self._send(400, {"error": "无法识别的图片格式，请使用 PNG/JPG/WebP/GIF（或 HEIC 等常见照片格式）"}); return
         if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-            self._send(400, {"error": "仅支持 PNG/JPG/WebP/GIF 图片（HEIC/BMP 等请先转成 JPG 再上传）"}); return
+            conv = _convert_to_jpeg(data, ext)
+            if conv is None:
+                self._send(400, {"error": "图片格式不支持（HEIC/BMP 等已尝试自动转换失败，请先转成 JPG/PNG 再上传）"}); return
+            data, ext = conv
         conn = db_conn()
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
