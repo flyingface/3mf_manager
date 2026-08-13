@@ -546,14 +546,22 @@ class Handler(BaseHTTPRequestHandler):
             head, _, content = part.partition(b"\r\n\r\n")
             hdr = head.decode("utf-8", "ignore")
             content = content.rsplit(b"\r\n", 1)[0]
-            nm = re.search(r'name="([^"]*)"', hdr)
+            # name 兼容带引号/无引号
+            nm = re.search(r'name="([^"]*)"', hdr) or re.search(r'name=([^;\r\n]+)', hdr)
             if not nm:
                 continue
-            fname = re.search(r'filename="([^"]*)"', hdr)
-            if fname:
-                files.append((nm.group(1), unquote(fname.group(1)), content))
+            name = nm.group(1)
+            # filename 兼容 filename="x" / filename=x / filename*=UTF-8''x （Apple 图库等会用到后两种）
+            fm = (re.search(r'filename\*=(?:UTF-8\'\')?([^;\r\n]+)', hdr, re.I)
+                  or re.search(r'filename="([^"]*)"', hdr, re.I)
+                  or re.search(r'filename=([^;\r\n]+)', hdr, re.I))
+            if fm:
+                files.append((name, unquote(fm.group(1)).strip(), content))
+            elif name == "file":
+                # 兜底：name=file 但无 filename（部分浏览器从照片图库选图时不带 filename），按文件处理
+                files.append((name, "", content))
             else:
-                fields[nm.group(1)] = content.decode("utf-8", "ignore").strip()
+                fields[name] = content.decode("utf-8", "ignore").strip()
         return fields, files
 
     def log_message(self, *a):
