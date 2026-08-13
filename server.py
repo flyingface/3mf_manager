@@ -536,7 +536,30 @@ class Handler(BaseHTTPRequestHandler):
         """解析 multipart，返回 {fields, files:[(name,filename,data)]}"""
         ct = self.headers.get("Content-Type", "")
         boundary = ct.split("boundary=", 1)[1].strip().strip('"').encode()
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        # 读取 body：优先 Content-Length，其次 chunked（Safari 图库选图等场景可能用 chunked）
+        cl = self.headers.get("Content-Length")
+        if cl is not None:
+            body = self.rfile.read(int(cl))
+        elif "chunked" in (self.headers.get("Transfer-Encoding", "") or "").lower():
+            body = b""
+            while True:
+                line = self.rfile.readline()
+                if not line:
+                    break
+                try:
+                    size = int(line.strip().split(b";")[0], 16)
+                except ValueError:
+                    break
+                if size == 0:
+                    while True:
+                        t = self.rfile.readline()
+                        if t in (b"\r\n", b"\n", b""):
+                            break
+                    break
+                body += self.rfile.read(size)
+                self.rfile.readline()
+        else:
+            body = b""
         parts = body.split(b"--" + boundary)
         fields = {}
         files = []
@@ -569,7 +592,11 @@ class Handler(BaseHTTPRequestHandler):
                 with open(os.path.join(BASE, "_multipart_debug.log"), "a", encoding="utf-8") as dbg:
                     dbg.write(f"=== {datetime.datetime.now().isoformat()} ===\n")
                     dbg.write(f"Content-Type: {self.headers.get('Content-Type','')}\n")
+                    dbg.write(f"Content-Length: {self.headers.get('Content-Length','(none)')}\n")
+                    dbg.write(f"Transfer-Encoding: {self.headers.get('Transfer-Encoding','(none)')}\n")
+                    dbg.write(f"Expect: {self.headers.get('Expect','(none)')}\n")
                     dbg.write(f"boundary: {boundary!r}\n")
+                    dbg.write(f"body length: {len(body)}\n")
                     dbg.write(f"parts count: {len(parts)}\n")
                     for i, part in enumerate(parts):
                         h = part.split(b"\r\n\r\n")[0] if b"\r\n\r\n" in part else part
