@@ -24,3 +24,4 @@ uv.lock
 # ---- 系统 ----
 .DS_Store
 *.log
+_multipart_debug.log
