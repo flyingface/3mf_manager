@@ -585,25 +585,6 @@ class Handler(BaseHTTPRequestHandler):
                 files.append((name, "", content))
             else:
                 fields[name] = content.decode("utf-8", "ignore").strip()
-        # 诊断：若未解析出文件，记录原始 multipart 结构便于定位（Safari 等浏览器边界情况）
-        if not files:
-            try:
-                import datetime
-                with open(os.path.join(BASE, "_multipart_debug.log"), "a", encoding="utf-8") as dbg:
-                    dbg.write(f"=== {datetime.datetime.now().isoformat()} ===\n")
-                    dbg.write(f"Content-Type: {self.headers.get('Content-Type','')}\n")
-                    dbg.write(f"Content-Length: {self.headers.get('Content-Length','(none)')}\n")
-                    dbg.write(f"Transfer-Encoding: {self.headers.get('Transfer-Encoding','(none)')}\n")
-                    dbg.write(f"Expect: {self.headers.get('Expect','(none)')}\n")
-                    dbg.write(f"boundary: {boundary!r}\n")
-                    dbg.write(f"body length: {len(body)}\n")
-                    dbg.write(f"parts count: {len(parts)}\n")
-                    for i, part in enumerate(parts):
-                        h = part.split(b"\r\n\r\n")[0] if b"\r\n\r\n" in part else part
-                        dbg.write(f"part[{i}] head: {h[:500]!r}\n")
-                    dbg.write("\n")
-            except Exception:
-                pass
         return fields, files
 
     def log_message(self, *a):
