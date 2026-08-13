@@ -85,6 +85,11 @@ input::placeholder{color:var(--tert)}
 .card-hd{display:flex;gap:12px;padding:12px;align-items:stretch}
 .card-hd .th{width:84px;height:84px;border-radius:var(--r-md);background:var(--bg2);object-fit:cover;cursor:zoom-in;flex-shrink:0}
 .card-hd .th.empty{display:flex;align-items:center;justify-content:center;color:var(--tert);font-size:20px}
+/* 缩略图上传入口：hover 显示相机按钮 */
+.th-wrap{position:relative;flex-shrink:0}
+.th-wrap .th-cam{position:absolute;right:4px;bottom:4px;width:24px;height:24px;border-radius:7px;border:none;background:rgba(15,23,42,.55);color:#fff;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;opacity:0;transition:opacity .15s,background .15s}
+.th-wrap:hover .th-cam{opacity:1}
+.th-wrap .th-cam:hover{background:rgba(59,109,240,.9)}
 .card-hd .cb{flex:1;min-width:0;display:flex;flex-direction:column}
 .card-hd .rt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .card-hd .rt .cname{font-weight:500;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
@@ -404,9 +409,11 @@ function cardHTML(f,collapsed=false){
   const plates=(f.plate_imgs||'').split(',').filter(Boolean);
   const tags=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
   const infoCls=collapsed?'card-info collapsed':'card-info';
+  const camTitle=f.thumb?'更换缩略图':'上传缩略图';
+  const camBtn=`<button class="th-cam" title="${camTitle}" onclick="uploadThumb(${f.id});event.stopPropagation()">📷</button>`;
   const thumb=f.thumb
-    ?`<img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="${esc(f.filename)}">`
-    :`<div class="th empty" title="${esc(f.filename)}">未上传</div>`;
+    ?`<div class="th-wrap"><img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="${esc(f.filename)}">${camBtn}</div>`
+    :`<div class="th-wrap"><div class="th empty" title="${esc(f.filename)}">未上传</div>${camBtn}</div>`;
   const catPill=f.category?`<span class="pill cat">${esc(f.category)}</span>`:'';
   // 头部主标题：优先用别名（更短可读），无别名则用文件名（单行省略）
   const headTitle=(f.alias&&f.alias!==f.filename)?f.alias:f.filename;
@@ -610,7 +617,7 @@ async function refreshTags(id){
 }
 
 // ===== 缩略图/附件 =====
-function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();toast(j.ok?'缩略图已上传':'失败');loadPending()};inp.click()}
+function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast('缩略图已更新');loadPending();if(typeof search==='function')search()}else{toast('上传失败：'+(j.error||'未知错误'))}};inp.click()}
 function attachFile(id){const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(`附件已关联 ${j.saved.length}`);refreshAttach(id)}else{toast('失败');loadPending()}};inp.click()}
 async function loadAttachments(id){const r=await fetch('/api/attachments?file_id='+id);const j=await r.json();const boxes=document.querySelectorAll('[data-att-id="'+id+'"]');if(!boxes.length)return;const html=j.attachments.length?'附件：'+j.attachments.map(a=>`<a href="/attachments/${a.id}" onclick="return false" title="${esc(a.rel_path||a.abs_path||'')}">${esc(a.name)}</a><span class="x" title="删除附件" onclick="delAttach(${a.id}, ${id})">🗑</span>`).join(' '):'';boxes.forEach(b=>b.innerHTML=html)}
 // 添加/删除附件后，刷新当前所在视图中该卡片的附件列表（不依赖 pending 重渲染），保证待整理/模型库都及时同步
