@@ -480,7 +480,7 @@ function cardHTML(f,collapsed=false){
     </div>
     <div class="${infoCls}">
       <div class="kv" style="padding:0 14px">
-        <b>文件名</b><span title="${esc(f.filename)}">${esc(f.filename)}</span>${bambuBtn}
+        <b>文件名</b><span class="kv-val"><span class="kv-txt" title="${esc(f.filename)}">${esc(f.filename)}</span>${bambuBtn}</span>
         ${aliasKV}
         ${catKV}
         ${targetKV}
