@@ -449,9 +449,11 @@ function cardHTML(f,collapsed=false){
     ? `<div class="mi" onclick="toggleReclass(${f.id}, this)">手动改分类</div>`
     : '';
   // 归档路径：待整理可编辑（允许输入子目录路径）、无「打开」图标；已归档只读、显示「打开」图标
+  // 🖨 用 Bambu Studio 打开 3MF（pending/applied 均可用）
+  const bambuBtn=`<button class="kv-ico" title="用 Bambu Studio 打开" onclick="openInBambu(${f.id});event.stopPropagation()">🖨</button>`;
   const targetKV = editable
-    ? `<b>归档路径</b><span class="kv-val"><span id="target-${f.id}" class="kv-txt cat-edit" title="点击编辑归档路径（可含子目录）" data-cur="${esc(f.target_dir||'')}" onclick="editTargetDir(${f.id}, this);event.stopPropagation()">${esc(f.target_dir||'—')}</span></span>`
-    : `<b>归档路径</b><span class="kv-val"><span class="kv-txt" title="${esc(f.target_dir||'')}">${esc(f.target_dir||'—')}</span><button class="kv-ico" title="在文件管理器中打开" onclick="openArchive(${f.id});event.stopPropagation()">📂</button></span>`;
+    ? `<b>归档路径</b><span class="kv-val"><span id="target-${f.id}" class="kv-txt cat-edit" title="点击编辑归档路径（可含子目录）" data-cur="${esc(f.target_dir||'')}" onclick="editTargetDir(${f.id}, this);event.stopPropagation()">${esc(f.target_dir||'—')}</span>${bambuBtn}</span>`
+    : `<b>归档路径</b><span class="kv-val"><span class="kv-txt" title="${esc(f.target_dir||'')}">${esc(f.target_dir||'—')}</span>${bambuBtn}<button class="kv-ico" title="在文件管理器中打开" onclick="openArchive(${f.id});event.stopPropagation()">📂</button></span>`;
   return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
     <div class="card-hd">
       ${thumb}
@@ -603,6 +605,7 @@ async function commitTargetDir(id){
   toast('归档路径已更新');loadPending();if(typeof search==='function')search();
 }
 async function openArchive(id){const r=await fetch('/api/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('已在文件管理器中打开')}
+async function openInBambu(id){const r=await fetch('/api/open-in-bambu',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('正在用 Bambu Studio 打开')}
 function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 SHA256 可复制');return}const done=()=>{toast('已复制 SHA256')};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(done).catch(()=>fallbackCopy(h,done))}else{fallbackCopy(h,done)}}
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
 

@@ -10,6 +10,8 @@
 - **缩略图 HEIC 自动转换**：从 Apple 照片图库选图上传（默认 HEIC）不再失败——后端按**文件内容**识别图片格式（不依赖扩展名），HEIC/HEIF/BMP/TIFF 等自动用系统工具（macOS `sips` / Linux ImageMagick）转成 JPEG 后落盘，转换成功提示「已上传并自动转换」；无法识别的内容直接拒绝并给出明确提示（零第三方依赖）
 - **修复 multipart 解析导致从 Apple 图库选图上传报「need image」**：`_read_multipart` 原仅识别带双引号的 `filename="x"`，而 macOS 从照片图库选图时浏览器发出的 `Content-Disposition` 常为无引号 / `filename*=` / 无 filename 格式，导致文件 part 被误当普通字段、files 为空。已兼容全部格式并加 `name=file` 兜底，缩略图/附件/3MF 上传均受益
 - **缩略图可在预览中删除**：点击缩略图打开预览查看器后，仅当当前展示的是「模型预览」（缩略图）时，头部显示 🗑 删除按钮；点击确认后清空缩略图并删除图片文件，卡片回到「未上传」占位。新增 `POST /api/delete-thumb` 接口
+- **用 Bambu Studio 打开 3MF**：卡片归档路径行新增 🖨 入口（待整理/已归档均可用），点击调用系统 `open -a BambuStudio` 打开该卡片对应的 3MF 文件；BambuStudio 不可用时回退系统默认打开。新增 `POST /api/open-in-bambu` 接口
+- **Safari 照片图库选图兼容**：Safari 从照片图库选图时请求体为空（浏览器侧问题），前端增加 `file.size` 检测并提示改用 Chrome 或先导出图片；后端 multipart body 读取支持 chunked 编码增强健壮性
 
 ## [2.2.1] - 2026-08-09
 

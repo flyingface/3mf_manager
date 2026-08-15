@@ -664,6 +664,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_reset_library(self._read_json())
         if p == "/api/open-folder":
             return self._api_open_folder(self._read_json())
+        if p == "/api/open-in-bambu":
+            return self._api_open_in_bambu(self._read_json())
         if p == "/api/set-alias":
             return self._api_set_alias(self._read_json())
         if p == "/api/set-target":
@@ -1056,6 +1058,37 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "path": abs_dir})
         except Exception as e:
             self._send(500, {"error": f"无法打开目录: {e}"})
+
+    def _api_open_in_bambu(self, data):
+        """用 Bambu Studio 打开该文件对应的 3MF。data: {id}"""
+        fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        conn = db_conn()
+        row = conn.execute("SELECT abs_path FROM files WHERE id=?", (fid,)).fetchone()
+        conn.close()
+        if not row:
+            self._send(404, {"error": "not found"}); return
+        path = row["abs_path"]
+        if not path or not os.path.exists(path):
+            self._send(404, {"error": "文件不存在于磁盘"}); return
+        try:
+            if sys.platform == "darwin":
+                # 优先用 BambuStudio 打开，失败则回退系统默认
+                r = subprocess.run(["open", "-a", "BambuStudio", path], capture_output=True, timeout=20)
+                if r.returncode != 0:
+                    r2 = subprocess.run(["open", path], capture_output=True, timeout=20)
+                    if r2.returncode != 0:
+                        self._send(500, {"error": "Bambu Studio 打开失败，请确认已安装 BambuStudio.app"}); return
+                self._send(200, {"ok": True}); return
+            elif sys.platform == "win32":
+                os.startfile(path)  # noqa: F821
+                self._send(200, {"ok": True}); return
+            else:
+                subprocess.run(["xdg-open", path], check=True)
+                self._send(200, {"ok": True}); return
+        except Exception as e:
+            self._send(500, {"error": str(e)})
 
     def _api_set_alias(self, data):
         """手动编辑归档名。data: {id, alias}"""
