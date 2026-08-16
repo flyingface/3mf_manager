@@ -435,14 +435,15 @@ def llm_classify(info, existing_categories, rule_category, hint=""):
     hint = (hint or "").strip()
     existing = ", ".join(sorted(set(existing_categories))) or "（无）"
     sys_prompt = (
-        "你是 3D 打印模型分类助手。根据给定的模型信息，判断最合适的分类。\n"
+        "你是 3D 打印模型分类助手。根据给定的模型信息，判断最合适的分类与归档名。\n"
         "现有分类如下，用 JSON 严格输出：\n"
-        '{"category": "分类名", "is_new": true/false, "reason": "一句话理由"}\n'
+        '{"category": "分类名", "is_new": true/false, "reason": "一句话理由", "alias": "简短归档名"}\n'
         "规则：\n"
         "1. 若能从现有分类中找到合适项，返回该分类名，is_new=false。\n"
         "2. 若现有分类都不合适，返回一个简洁的新分类名（如 '手办/宠物小精灵' 或 'IP·某某'），is_new=true。\n"
         "3. 分类名尽量沿用现有体系风格。\n"
-        "4. 若模型信息中的专有名词、角色、IP、作品名等你不理解，可通过网络搜索确认其类别与常见归类后再判断，不要凭猜测分类。"
+        "4. alias 是用于归档的简短可读文件名（不含扩展名，≤26字），基于标题/内容提炼，去除版本号/尺寸/打印参数等噪音词（如 V2、150%、免支撑、AMS、多色等），如标题为「哪吒之魔童降世 手办 V2 150%」则 alias 给「哪吒手办」。\n"
+        "5. 若模型信息中的专有名词、角色、IP、作品名等你不理解，可通过网络搜索确认其类别与常见归类后再判断，不要凭猜测分类。"
     )
     user_msg = (
         f"模型信息：\n文件名：{info.get('filename','')}\n"
@@ -466,6 +467,7 @@ def llm_classify(info, existing_categories, rule_category, hint=""):
         "category": str(data.get("category", rule_category)).strip(),
         "is_new": bool(data.get("is_new", False)),
         "reason": str(data.get("reason", "")),
+        "alias": str(data.get("alias", "")).strip(),
     }
 
 def llm_semantic_search(query, files, top_k=8):
@@ -966,8 +968,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"results": results})
 
     def _api_recategorize(self, data):
-        """手动重选分类。data: {id, category}"""
-        fid = data.get("id"); cat = data.get("category")
+        """手动重选分类。data: {id, category, alias?}"""
+        fid = data.get("id"); cat = data.get("category"); alias = (data.get("alias") or "").strip()
         if not fid or not cat:
             self._send(400, {"error": "need id+category"}); return
         conn = db_conn()
@@ -977,7 +979,8 @@ class Handler(BaseHTTPRequestHandler):
         if row["status"] != "pending":
             conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         target = target_relpath(cat, row["filename"], row["title"], row["folder"])
-        alias = make_alias(row["filename"], row["title"])
+        if not alias:
+            alias = make_alias(row["filename"], row["title"])
         conn.execute("UPDATE files SET category=?, target_dir=?, alias=?, status='pending' WHERE id=?", (cat, target, alias, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "category": cat, "target_dir": target, "alias": alias})
@@ -1339,6 +1342,7 @@ class Handler(BaseHTTPRequestHandler):
         """用户确认 LLM 建议的新分类，落地到规则库并应用到文件。"""
         fid = data.get("id")
         category = data.get("category")
+        alias = (data.get("alias") or "").strip()
         if not fid or not category:
             self._send(400, {"error": "need id+category"}); return
         conn = db_conn()
@@ -1349,7 +1353,8 @@ class Handler(BaseHTTPRequestHandler):
             conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         # 应用分类
         target = target_relpath(category, row["filename"], row["title"], row["folder"])
-        alias = make_alias(row["filename"], row["title"])
+        if not alias:
+            alias = make_alias(row["filename"], row["title"])
         conn.execute("UPDATE files SET category=?, target_dir=?, alias=?, status='pending' WHERE id=?", (category, target, alias, fid))
         conn.commit(); conn.close()
         # 记录新分类到自定义分类（持久化 settings）
