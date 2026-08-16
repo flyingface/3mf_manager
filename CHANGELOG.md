@@ -12,6 +12,7 @@
 - **缩略图可在预览中删除**：点击缩略图打开预览查看器后，仅当当前展示的是「模型预览」（缩略图）时，头部显示 🗑 删除按钮；点击确认后清空缩略图并删除图片文件，卡片回到「未上传」占位。新增 `POST /api/delete-thumb` 接口
 - **用 Bambu Studio 打开 3MF**：卡片归档路径行新增 🖨 入口（待整理/已归档均可用），点击调用系统 `open -a BambuStudio` 打开该卡片对应的 3MF 文件；BambuStudio 不可用时回退系统默认打开。新增 `POST /api/open-in-bambu` 接口
 - **Safari 照片图库选图兼容**：Safari 从照片图库选图时请求体为空（浏览器侧问题），前端增加 `file.size` 检测并提示改用 Chrome 或先导出图片；后端 multipart body 读取支持 chunked 编码增强健壮性
+- **采用 AI 分类时同步归档名与路径**：点击「采用」应用分类时，除更新分类与重算归档路径（`target_dir`）外，同时重新生成归档名（`alias`），确保三者同步；`/api/recategorize` 与 `/api/confirm-new-category` 均已支持，提示文案改为「已应用分类，归档名与归档路径已同步」
 
 ## [2.2.1] - 2026-08-09
 

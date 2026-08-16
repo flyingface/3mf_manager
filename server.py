@@ -977,9 +977,10 @@ class Handler(BaseHTTPRequestHandler):
         if row["status"] != "pending":
             conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         target = target_relpath(cat, row["filename"], row["title"], row["folder"])
-        conn.execute("UPDATE files SET category=?, target_dir=?, status='pending' WHERE id=?", (cat, target, fid))
+        alias = make_alias(row["filename"], row["title"])
+        conn.execute("UPDATE files SET category=?, target_dir=?, alias=?, status='pending' WHERE id=?", (cat, target, alias, fid))
         conn.commit(); conn.close()
-        self._send(200, {"ok": True, "category": cat, "target_dir": target})
+        self._send(200, {"ok": True, "category": cat, "target_dir": target, "alias": alias})
 
     def _api_return_pending(self, data):
         """退回整理：把已归档文件退回「待整理」。索引 status 翻回 pending，
@@ -1348,7 +1349,8 @@ class Handler(BaseHTTPRequestHandler):
             conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         # 应用分类
         target = target_relpath(category, row["filename"], row["title"], row["folder"])
-        conn.execute("UPDATE files SET category=?, target_dir=?, status='pending' WHERE id=?", (category, target, fid))
+        alias = make_alias(row["filename"], row["title"])
+        conn.execute("UPDATE files SET category=?, target_dir=?, alias=?, status='pending' WHERE id=?", (category, target, alias, fid))
         conn.commit(); conn.close()
         # 记录新分类到自定义分类（持久化 settings）
         conn = db_conn()
