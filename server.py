@@ -207,7 +207,9 @@ def target_of(cat, fn="", title="", folder=""):
     if parent in FUNC_MAP:
         l1, l2 = FUNC_MAP[parent]
         return (l1, l2, sub)
-    return ("04_其他未分类", None, None)
+    # 不在映射表的分类：用分类名本身按 "/" 拆成多级目录，让归档路径反映分类（过滤 ".." 防穿越）
+    parts = [p for p in cat.split("/") if p and p != ".."]
+    return tuple(parts) if parts else ("04_其他未分类", None, None)
 
 def target_relpath(cat, fn="", title="", folder=""):
     t = target_of(cat, fn, title, folder)
