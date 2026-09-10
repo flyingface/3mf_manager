@@ -36,7 +36,7 @@ def fetch(base, path, data=None, files=None):
         parts = []
         for name, fn, content in files:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{fn}"\r\n\r\n'.encode())
-            parts.append(content)
+            parts.append(content + b"\r\n")  # 真实 multipart：内容后有 \r\n 再接 boundary
         if data:
             for k, v in data.items():
                 parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())

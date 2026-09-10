@@ -49,10 +49,26 @@ INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
 # ---------------------------------------------------------------
 SEP = subcat.SEP
 
-def categorize(folder, filename, title, sib_text=""):
+def custom_cat_keyword(cat):
+    """自定义分类的匹配关键词：取分类名最具体的末段。
+    如 '手办/宠物小精灵' → '宠物小精灵'，'IP·初音未来' → '初音未来'。
+    只取末段是为了避免 '手办' 这类宽泛前缀误吞无关文件。"""
+    tail = cat[3:] if cat.startswith("IP·") else cat
+    parts = [p.strip() for p in re.split(r'/|·', tail) if p.strip()]
+    if not parts:
+        return ""
+    kw = max(parts, key=len)
+    return kw if len(kw) >= 2 else ""
+
+def categorize(folder, filename, title, sib_text="", custom_cats=None):
     s = (folder + " " + filename + " " + title + " " + sib_text)
     sl = s.lower()
     ftl = (filename + " " + title).lower()
+    # 用户确认过的自定义分类优先命中（用户明确教过系统的分类，应最优先）
+    for cat in (custom_cats or []):
+        kw = custom_cat_keyword(cat)
+        if kw and kw in sl:
+            return subcat.refine(cat, folder, filename, title)
     priority_ip = [("dummy13", "IP·Dummy13"), ("虚拟13", "IP·Dummy13"),
                    ("虚拟模型13", "IP·Dummy13"), ("虚拟人偶13", "IP·Dummy13"),
                    ("虚拟人物13", "IP·Dummy13"), ("13号假人", "IP·Dummy13"),
@@ -190,6 +206,16 @@ FUNC_MAP = {
     "其他/未分类": ("04_其他未分类", None),
 }
 
+def load_custom_categories():
+    """读取用户确认过的自定义分类（settings.custom_categories，逗号分隔）。"""
+    try:
+        conn = db_conn()
+        row = conn.execute("SELECT value FROM settings WHERE key='custom_categories'").fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return []
+    return [x for x in (row["value"].split(",") if row and row["value"] else []) if x]
+
 def target_of(cat, fn="", title="", folder=""):
     if cat.startswith("IP·"):
         rest = cat[3:]
@@ -278,6 +304,17 @@ def make_alias(filename, title=""):
     d = d[:26]
     d = re.sub(r'[\s_\-]*$', '', d)
     return d or base[:26]
+
+def sanitize_alias(alias):
+    """清洗用户/LLM 提供的归档名：去非法字符、压连字符、去首尾点/横杠。
+
+    归档时会以 alias 作为文件名落盘，任何含 / \\ 等的输入都可能把文件
+    写出目标目录，因此入库与落盘两侧都必须过这里。
+    """
+    a = _sanitize(str(alias or ""))
+    a = re.sub(r'-{2,}', '-', a)
+    a = a.strip().strip('.-')
+    return a.strip()
 
 # ---------------------------------------------------------------
 # SQLite
@@ -572,7 +609,9 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             head, _, content = part.partition(b"\r\n\r\n")
             hdr = head.decode("utf-8", "ignore")
-            content = content.rsplit(b"\r\n", 1)[0]
+            # 只剥掉 boundary 前的一个尾部 \r\n；不能用 rsplit（会截断内部含 \r\n 的二进制内容）
+            if content.endswith(b"\r\n"):
+                content = content[:-2]
             # name 兼容带引号/无引号
             nm = re.search(r'name="([^"]*)"', hdr) or re.search(r'name=([^;\r\n]+)', hdr)
             if not nm:
@@ -595,13 +634,50 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # ---- 路由 ----
+    def _safe_under(self, base, rel):
+        """拼接 base 与 rel 并校验 realpath 仍在 base 内，防 ../ 路径穿越。
+        安全返回绝对路径；越界返回 None。"""
+        fp = os.path.join(base, rel)
+        real = os.path.realpath(fp)
+        base_real = os.path.realpath(base)
+        if real == base_real or real.startswith(base_real + os.sep):
+            return real
+        return None
+
     def do_GET(self):
+        self._route("GET")
+
+    def do_POST(self):
+        self._route("POST")
+
+    def _route(self, method):
+        """统一入口：全局异常兜底，避免未捕获异常直接断连且无迹可循。"""
+        try:
+            if method == "GET":
+                self._do_get()
+            else:
+                self._do_post()
+        except json.JSONDecodeError:
+            self._send(400, {"error": "请求体不是合法 JSON"})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # 客户端已断开，无需回包
+        except Exception:
+            traceback.print_exc()
+            try:
+                self._send(500, {"error": "服务器内部错误（详情见服务日志）"})
+            except Exception:
+                pass
+
+    def _do_get(self):
         u = urlparse(self.path)
         p = u.path
         if p == "/" or p == "/index.html":
             return self._serve_file(os.path.join(STATIC, "index.html"), "text/html; charset=utf-8")
         if p.startswith("/static/"):
-            return self._serve_file(os.path.join(STATIC, p[len("/static/"):]))
+            fp = self._safe_under(STATIC, p[len("/static/"):])
+            if not fp:
+                return self._send(404, {"error": "not found"})
+            return self._serve_file(fp)
         if p == "/api/stats":
             return self._api_stats()
         if p == "/api/files":
@@ -617,7 +693,10 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/dirs":
             return self._api_dirs()
         if p.startswith("/thumbs/"):
-            return self._serve_file(os.path.join(THUMB_DIR, p[len("/thumbs/"):]))
+            fp = self._safe_under(THUMB_DIR, p[len("/thumbs/"):])
+            if not fp:
+                return self._send(404, {"error": "not found"})
+            return self._serve_file(fp)
         if p.startswith("/attachments/"):
             aid = p[len("/attachments/"):]
             conn = db_conn()
@@ -631,7 +710,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_file(full)
         self._send(404, {"error": "not found"})
 
-    def do_POST(self):
+    def _do_post(self):
         u = urlparse(self.path)
         p = u.path
         if p == "/api/upload":
@@ -717,7 +796,8 @@ class Handler(BaseHTTPRequestHandler):
             top = r["category"].split(SEP)[0]
             uniq.setdefault(top, []).append(r["category"])
         conn.close()
-        self._send(200, {"ip": list(IP_NAME), "func": list(FUNC_MAP), "in_use": uniq})
+        self._send(200, {"ip": list(IP_NAME), "func": list(FUNC_MAP),
+                         "custom": load_custom_categories(), "in_use": uniq})
 
     def _api_get_config(self):
         c = llm_client.load_config()
@@ -838,18 +918,19 @@ class Handler(BaseHTTPRequestHandler):
             r["path"] = r["abs_path"]
         self._send(200, {"files": rows, "count": len(rows)})
 
-    def _ingest(self, path):
-        """解析 + 分类 + 别名 + hash + 提取摆盘图，写入索引。返回记录。"""
+    def _ingest(self, path, sha256_hex=None):
+        """解析 + 分类 + 别名 + hash + 提取摆盘图，写入索引。返回记录。
+        sha256_hex: 调用方已算好的内容哈希（如上传时做过重复检测），避免重复读盘。"""
         filename = os.path.basename(path)
         meta = parse_3mf.parse_3mf(path)
         size = os.path.getsize(path) / 1024 / 1024
         rel = rel_to_root(path)
         folder = os.path.dirname(rel) if rel else ""
         title = meta["title"]
-        category = categorize(folder, filename, title)
+        category = categorize(folder, filename, title, custom_cats=load_custom_categories())
         alias = make_alias(filename, title)
         target = target_relpath(category, filename, title, folder)
-        h = sha256_file(path)
+        h = sha256_hex or sha256_file(path)
         # ---- 提取内嵌摆盘图并落盘 ----
         thumb_name = ""
         plate_files = []
@@ -911,7 +992,8 @@ class Handler(BaseHTTPRequestHandler):
             dup_info = None
             if dup:
                 dup_info = {"id": dup["id"], "filename": dup["filename"], "path": dup["abs_path"]}
-            rec = self._ingest(dest)
+            # hash 在重复检测时已算好，直接传给 _ingest，避免大文件二次读盘
+            rec = self._ingest(dest, sha256_hex=h)
             results.append({"name": fname, "ok": True, "file": rec, "is_duplicate": bool(dup_info), "duplicate_of": dup_info})
         self._send(200, {"results": results})
 
@@ -947,7 +1029,9 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(tdir, exist_ok=True)
             new_name = row["filename"]
             if do_rename and row["alias"]:
-                new_name = row["alias"] + ".3mf"
+                clean = sanitize_alias(row["alias"])
+                if clean:  # 清洗后为空则保留原文件名，杜绝 ../ 等注入落盘
+                    new_name = clean + ".3mf"
             new_path = os.path.join(tdir, new_name)
             if os.path.abspath(new_path) != os.path.abspath(old):
                 b, e = os.path.splitext(new_name)
@@ -981,8 +1065,7 @@ class Handler(BaseHTTPRequestHandler):
         if row["status"] != "pending":
             conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         target = target_relpath(cat, row["filename"], row["title"], row["folder"])
-        if not alias:
-            alias = make_alias(row["filename"], row["title"])
+        alias = sanitize_alias(alias) or make_alias(row["filename"], row["title"])
         conn.execute("UPDATE files SET category=?, target_dir=?, alias=?, status='pending' WHERE id=?", (cat, target, alias, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "category": cat, "target_dir": target, "alias": alias})
@@ -1107,7 +1190,7 @@ class Handler(BaseHTTPRequestHandler):
             conn.close(); self._send(404, {"error": "not found"}); return
         if row["status"] != "pending":
             conn.close(); self._send(400, {"error": "已归档文件不可修改归档名"}); return
-        alias = (alias or "").strip()
+        alias = sanitize_alias(alias)
         conn.execute("UPDATE files SET alias=? WHERE id=?", (alias, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "alias": alias})
@@ -1239,7 +1322,16 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "file not found"}); return
-        tname = f"{fid}_{int(time.time())}{ext}"
+        # 替换时删除旧缩略图文件，避免 thumbs/ 孤儿文件累积
+        if row["thumb"]:
+            oldp = os.path.join(THUMB_DIR, row["thumb"])
+            if os.path.exists(oldp):
+                try:
+                    os.remove(oldp)
+                except OSError:
+                    pass
+        # 随机后缀避免同一秒内替换时重名覆盖
+        tname = f"{fid}_{int(time.time())}_{os.urandom(3).hex()}{ext}"
         tpath = os.path.join(THUMB_DIR, tname)
         with open(tpath, "wb") as f:
             f.write(data)
@@ -1355,8 +1447,7 @@ class Handler(BaseHTTPRequestHandler):
             conn.close(); self._send(400, {"error": "已归档文件不可重新分类"}); return
         # 应用分类
         target = target_relpath(category, row["filename"], row["title"], row["folder"])
-        if not alias:
-            alias = make_alias(row["filename"], row["title"])
+        alias = sanitize_alias(alias) or make_alias(row["filename"], row["title"])
         conn.execute("UPDATE files SET category=?, target_dir=?, alias=?, status='pending' WHERE id=?", (category, target, alias, fid))
         conn.commit(); conn.close()
         # 记录新分类到自定义分类（持久化 settings）
