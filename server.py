@@ -23,10 +23,10 @@
 
 启动: python server.py [端口]
 """
-import os, sys, re, json, hashlib, shutil, sqlite3, time, mimetypes, traceback, subprocess
+import os, sys, re, json, hashlib, shutil, sqlite3, time, mimetypes, traceback, subprocess, logging
+from logging.handlers import RotatingFileHandler
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
-from collections import Counter
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
@@ -34,177 +34,43 @@ DB_PATH = os.path.join(BASE, "library.db")
 THUMB_DIR = os.path.join(BASE, "thumbs")
 ATTACH_DIR = os.path.join(BASE, "attachments")
 TRASH_DIR = os.path.join(BASE, ".trash")
+LOG_DIR = os.path.join(BASE, "logs")
 
 import llm_client            # 配置 + LLM 客户端
 import parse_3mf            # 复用解析器
-import subcat               # 复用分类/子分类规则
-import mc_subcat
+import db as dbm            # 存储层（schema/迁移/路径工具，显式传参）
+import classify             # 分类/别名/目录规划纯逻辑层
+
+# ---- 组合根：把 classify/db 的纯逻辑与运行时配置绑定并对外复用（兼容旧 API）----
+SEP = classify.SEP
+IP_NAME = classify.IP_NAME
+FUNC_MAP = classify.FUNC_MAP
+categorize = classify.categorize
+custom_cat_keyword = classify.custom_cat_keyword
+target_of = classify.target_of
+target_relpath = classify.target_relpath
+make_alias = classify.make_alias
+sanitize_alias = classify.sanitize_alias
 
 cfg = llm_client.load_config()
 LIBRARY_ROOT = cfg["paths"].get("library_root") or os.path.join(os.path.expanduser("~"), "Downloads", "3mf_data")
 INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
 
-# ---------------------------------------------------------------
-# 分类器（规则优先；若需 LLM 增强在 _ingest 中调用）
-# ---------------------------------------------------------------
-SEP = subcat.SEP
+# ---- 日志：logs/mfmanager.log 轮转 + 控制台；替换静默 except，出错可回溯 ----
+def _setup_logging():
+    os.makedirs(LOG_DIR, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    fh = RotatingFileHandler(os.path.join(LOG_DIR, "mfmanager.log"),
+                             maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root.addHandler(fh)
+    root.addHandler(sh)
 
-def custom_cat_keyword(cat):
-    """自定义分类的匹配关键词：取分类名最具体的末段。
-    如 '手办/宠物小精灵' → '宠物小精灵'，'IP·初音未来' → '初音未来'。
-    只取末段是为了避免 '手办' 这类宽泛前缀误吞无关文件。"""
-    tail = cat[3:] if cat.startswith("IP·") else cat
-    parts = [p.strip() for p in re.split(r'/|·', tail) if p.strip()]
-    if not parts:
-        return ""
-    kw = max(parts, key=len)
-    return kw if len(kw) >= 2 else ""
-
-def categorize(folder, filename, title, sib_text="", custom_cats=None):
-    s = (folder + " " + filename + " " + title + " " + sib_text)
-    sl = s.lower()
-    ftl = (filename + " " + title).lower()
-    # 用户确认过的自定义分类优先命中（用户明确教过系统的分类，应最优先）
-    for cat in (custom_cats or []):
-        kw = custom_cat_keyword(cat)
-        if kw and kw in sl:
-            return subcat.refine(cat, folder, filename, title)
-    priority_ip = [("dummy13", "IP·Dummy13"), ("虚拟13", "IP·Dummy13"),
-                   ("虚拟模型13", "IP·Dummy13"), ("虚拟人偶13", "IP·Dummy13"),
-                   ("虚拟人物13", "IP·Dummy13"), ("13号假人", "IP·Dummy13"),
-                   ("13号dummy", "IP·Dummy13"), ("d13tb", "IP·Dummy13"),
-                   ("lucky13", "IP·Dummy13"), ("dummy docker", "IP·Dummy13")]
-    for kw, label in priority_ip:
-        if kw in ftl:
-            return subcat.refine(label, folder, filename, title)
-    folder_ip = {
-        "minecraft": "IP·Minecraft", "哪吒": "IP·哪吒", "dummy13": "IP·Dummy13",
-        "gundam": "IP·高达", "pokemon": "IP·宝可梦", "疯狂动物城": "IP·疯狂动物城",
-        "harrypotter": "IP·哈利波特", "mario": "IP·马里奥", "labubu": "IP·Labubu",
-        "驯龙高手": "IP·驯龙高手", "变形金刚": "IP·变形金刚", "claude": "IP·Claude",
-        "奥特曼": "IP·奥特曼",
-    }
-    for k, v in folder_ip.items():
-        if folder.lower() == k or folder.lower().startswith(k + "/") or folder.lower().startswith(k):
-            sub = folder[len(k):].strip("/")
-            return subcat.refine(v + (SEP + sub if sub else ""), folder, filename, title)
-    ip_kw = [
-        ("minecraft", "IP·Minecraft"), ("我的世界", "IP·Minecraft"), ("creeper", "IP·Minecraft"),
-        ("史蒂夫", "IP·Minecraft"), ("steve", "IP·Minecraft"), ("苦力怕", "IP·Minecraft"),
-        ("dummy13", "IP·Dummy13"), ("dummy", "IP·Dummy13"),
-        ("哪吒", "IP·哪吒"), ("nezha", "IP·哪吒"),
-        ("gundam", "IP·高达"), ("高达", "IP·高达"), ("元祖", "IP·高达"),
-        ("pokemon", "IP·宝可梦"), ("宝可梦", "IP·宝可梦"), ("皮卡丘", "IP·宝可梦"),
-        ("zootopia", "IP·疯狂动物城"), ("动物城", "IP·疯狂动物城"), ("疯狂动物城", "IP·疯狂动物城"),
-        ("harry potter", "IP·哈利波特"), ("哈利", "IP·哈利波特"),
-        ("mario", "IP·马里奥"), ("马里奥", "IP·马里奥"),
-        ("labubu", "IP·Labubu"),
-        ("驯龙高手", "IP·驯龙高手"),
-        ("变形金刚", "IP·变形金刚"), ("transformers", "IP·变形金刚"),
-        ("claude", "IP·Claude"),
-        ("奥特曼", "IP·奥特曼"), ("ultraman", "IP·奥特曼"),
-        ("三角洲", "IP·三角洲"), ("delta force", "IP·三角洲"), ("deltaforce", "IP·三角洲"),
-    ]
-    for kw, label in ip_kw:
-        if kw in sl:
-            return subcat.refine(label, folder, filename, title)
-    extra_ip = [
-        ("七龙珠", "IP·七龙珠"), ("龙珠", "IP·七龙珠"), ("dbz", "IP·七龙珠"), ("dragon ball", "IP·七龙珠"),
-        ("阿拉蕾", "IP·七龙珠"), ("arale", "IP·七龙珠"),
-        ("鬼灭", "IP·鬼灭之刃"), ("鬼灭之刃", "IP·鬼灭之刃"), ("kimetsu", "IP·鬼灭之刃"),
-        ("汪汪队", "IP·汪汪队"), ("paw patrol", "IP·汪汪队"),
-        ("侏罗纪", "IP·侏罗纪"), ("jurassic", "IP·侏罗纪"),
-        ("三丽鸥", "IP·三丽鸥"), ("sanrio", "IP·三丽鸥"), ("美乐蒂", "IP·三丽鸥"),
-        ("库洛米", "IP·三丽鸥"), ("玉桂狗", "IP·三丽鸥"),
-        ("蛋仔", "IP·蛋仔"), ("蛋仔派对", "IP·蛋仔"),
-        ("哆啦", "IP·哆啦A梦"), ("doraemon", "IP·哆啦A梦"),
-        ("格里扎", "IP·奥特曼"), ("mr.satan", "IP·七龙珠"), ("撒旦", "IP·七龙珠"),
-        ("完美沙鲁", "IP·七龙珠"), ("沙鲁", "IP·七龙珠"), ("完美细胞", "IP·七龙珠"),
-        ("柯南", "IP·柯南"), ("conan", "IP·柯南"),
-        ("魔女宅急便", "IP·吉卜力"), ("吉卜力", "IP·吉卜力"), ("宫崎骏", "IP·吉卜力"), ("龙猫", "IP·吉卜力"), ("千与千寻", "IP·吉卜力"),
-        ("异形", "IP·异形"), ("alien", "IP·异形"),
-        ("小智", "IP·宝可梦"), ("精灵宝可梦", "IP·宝可梦"),
-        ("小黑", "IP·小黑"),
-        ("星球大战", "IP·星球大战"), ("星战", "IP·星球大战"), ("达斯·维达", "IP·星球大战"), ("vader", "IP·星球大战"), ("黑武士", "IP·星球大战"), ("绝地", "IP·星球大战"),
-        ("塞尔达", "IP·塞尔达"), ("zelda", "IP·塞尔达"),
-        ("黑神话", "IP·黑神话悟空"), ("wukong", "IP·黑神话悟空"), ("悟空", "IP·黑神话悟空"),
-    ]
-    for kw, label in extra_ip:
-        if kw in sl:
-            return subcat.refine(label, folder, filename, title)
-    content_rules = [
-        (["恐龙", "dino"], "手办/恐龙"),
-        (["马年", "小白马", "小马", "酷酷马", "哭哭马", "苦苦马", "黑马", "白马", "粉马", "紫马", "黄马", "骏马", "赤马", "马上有钱", "马上开心", "马上系列", "策马", "战马", "关节战马", "八骏", "horsy", "horse", "马年吉祥物", "马年专属", "马年启岁", "马年福", "马年LOGO", "马年摇摇", "马年-双色", "马年冲冲冲"], "手办/马年"),
-        (subcat.UNCAT_BY_LABEL["武器/刀剑模型"], "武器/刀剑模型"),
-        (subcat.UNCAT_BY_LABEL["载具/车船模型"], "载具/车船模型"),
-        (subcat.UNCAT_BY_LABEL["机器人/机甲模型"], "机器人/机甲模型"),
-        (subcat.UNCAT_BY_LABEL["解压/指尖玩具"], "解压/指尖玩具"),
-        (subcat.UNCAT_BY_LABEL["积木/人偶"], "积木/人偶"),
-        (subcat.UNCAT_BY_LABEL["展示架/收纳墙"], "展示架/收纳墙"),
-        (subcat.UNCAT_BY_LABEL["动物/生物模型"], "动物/生物模型"),
-        (subcat.UNCAT_BY_LABEL["摆件/装饰雕像"], "摆件/装饰雕像"),
-        (subcat.UNCAT_BY_LABEL["文具/工具配件"], "文具/工具配件"),
-    ]
-    for kws, label in content_rules:
-        if any(k in sl for k in kws):
-            return subcat.refine(label, folder, filename, title)
-    ffunc = {
-        "gridfinity": "收纳/网格系统", "文具": "文具/办公", "灯具": "灯具/灯饰",
-        "容器": "收纳/盒体/容器", "keychain": "钥匙扣/挂件", "toys": "手办/角色/玩具",
-    }
-    fl = folder.lower()
-    for k, v in ffunc.items():
-        if fl == k or fl.startswith(k + "/") or fl.startswith(k):
-            return subcat.refine(v, folder, filename, title)
-    rules = [
-        (["笔", "中性笔", "pen", "ballpoint"], "3D打印笔"),
-        (["干燥", "药盒", "密封", "收纳", "盒", "box", "kfc", "垃圾桶", "pill", "capsule", "桶", "罐", "网格", "grid", "gridfinity"], "收纳/盒体/容器"),
-        (["磁", "magnet", "磁吸"], "磁吸/磁性配件"),
-        (["rail", "轨道", "拼接", "b-rail", "bracket"], "拼接/轨道系统"),
-        (["圣诞", "解压", "玩具", "fidget", "点击器", "摆件", "手办", "无脸男", "乐高", "石矶", "龙珠", "战车", "龙舟", "子弹", "机娘", "马"], "手办/角色/玩具"),
-        (["钥匙", "keychain", "挂件", "挂饰"], "钥匙扣/挂件"),
-        (["灯具", "灯", "lamp", "led"], "灯具/灯饰"),
-        (["文具", "笔筒", "名片", "回形针"], "文具/办公"),
-        (["配件", "支架", "底座", "lid", "盖", "顶", "替换", "联动", "柱体", "锁", "扣", "件", "夹", "夹子", "固定板"], "实用配件/机械件"),
-    ]
-    for kws, label in rules:
-        if any(k in sl for k in kws):
-            return subcat.refine(label, folder, filename, title)
-    for kws, label in subcat.UNCAT_RULES:
-        if any(k in sl for k in kws):
-            return label
-    for frag, label in subcat.FILENAME_OVERRIDE:
-        if frag in filename.lower():
-            return subcat.refine(label, folder, filename, title)
-    return "其他/未分类"
-
-# ---------------------------------------------------------------
-# 目录规划
-# ---------------------------------------------------------------
-IP_NAME = {
-    "Minecraft": "Minecraft", "Dummy13": "Dummy13", "高达": "高达Gundam",
-    "疯狂动物城": "疯狂动物城", "Labubu": "Labubu", "宝可梦": "宝可梦Pokemon",
-    "哪吒": "哪吒", "马里奥": "马里奥Mario", "哈利波特": "哈利波特",
-    "驯龙高手": "驯龙高手", "变形金刚": "变形金刚", "Claude": "Claude",
-    "奥特曼": "奥特曼", "石矶": "石矶", "七龙珠": "七龙珠",
-    "三角洲": "三角洲DeltaForce", "柯南": "柯南", "吉卜力": "吉卜力StudioGhibli",
-    "异形": "异形Alien", "小黑": "小黑", "星球大战": "星球大战StarWars",
-    "塞尔达": "塞尔达Zelda", "黑神话悟空": "黑神话悟空",
-}
-FUNC_MAP = {
-    "手办/角色/玩具": ("02_功能实用", "手办角色玩具"), "手办/恐龙": ("02_功能实用", "恐龙"), "手办/马年": ("02_功能实用", "马年"),
-    "实用配件/机械件": ("02_功能实用", "实用配件机械件"),
-    "钥匙扣/挂件": ("02_功能实用", "钥匙扣挂件"), "3D打印笔": ("02_功能实用", "3D打印笔"),
-    "文具/办公": ("02_功能实用", "文具办公"), "灯具/灯饰": ("02_功能实用", "灯具灯饰"),
-    "磁吸/磁性配件": ("02_功能实用", "磁吸磁性配件"), "拼接/轨道系统": ("02_功能实用", "拼接轨道系统"),
-    "收纳/盒体/容器": ("03_收纳", "盒体容器"), "收纳/网格系统": ("03_收纳", "网格系统Gridfinity"),
-    "武器/刀剑模型": ("02_功能实用", "武器刀剑模型"), "载具/车船模型": ("02_功能实用", "载具车船模型"),
-    "机器人/机甲模型": ("02_功能实用", "机器人机甲模型"), "解压/指尖玩具": ("02_功能实用", "解压指尖玩具"),
-    "积木/人偶": ("02_功能实用", "积木人偶"), "展示架/收纳墙": ("02_功能实用", "展示架收纳墙"),
-    "动物/生物模型": ("02_功能实用", "动物生物模型"), "摆件/装饰雕像": ("02_功能实用", "摆件装饰雕像"),
-    "文具/工具配件": ("02_功能实用", "文具工具配件"),
-    "其他/未分类": ("04_其他未分类", None),
-}
+LOG = logging.getLogger("mfmanager")
 
 def load_custom_categories():
     """读取用户确认过的自定义分类（settings.custom_categories，逗号分隔）。"""
@@ -215,106 +81,6 @@ def load_custom_categories():
     except sqlite3.Error:
         return []
     return [x for x in (row["value"].split(",") if row and row["value"] else []) if x]
-
-def target_of(cat, fn="", title="", folder=""):
-    if cat.startswith("IP·"):
-        rest = cat[3:]
-        name, sub = rest.split(SEP, 1) if SEP in rest else (rest, None)
-        l2 = IP_NAME.get(name.strip(), name.strip())
-        if l2 == "Minecraft":
-            sub = mc_subcat.minecraft_subcat(fn, title, folder)
-        elif l2 == "Dummy13":
-            sub = subcat.dummy_subcat(fn, title, folder)
-        return ("01_IP授权", l2, sub)
-    if SEP in cat:
-        parent, sub = cat.split(SEP, 1)
-    else:
-        parent, sub = cat, None
-    if parent in FUNC_MAP:
-        l1, l2 = FUNC_MAP[parent]
-        return (l1, l2, sub)
-    # 不在映射表的分类：用分类名本身按 "/" 拆成多级目录，让归档路径反映分类（过滤 ".." 防穿越）
-    parts = [p for p in cat.split("/") if p and p != ".."]
-    return tuple(parts) if parts else ("04_其他未分类", None, None)
-
-def target_relpath(cat, fn="", title="", folder=""):
-    t = target_of(cat, fn, title, folder)
-    return "/".join([p for p in t if p])
-
-# ---------------------------------------------------------------
-# 别名生成
-# ---------------------------------------------------------------
-NOISE_WORDS = {
-    "无需", "无支撑", "无五金", "免胶水", "免螺丝", "免安装", "一体打印", "分件", "分色", "拆件", "拼装",
-    "多色", "双色", "单色", "彩色", "渐变色", "拼色", "分盘", "一盘", "分体", "分层",
-    "AMS", "ams", "A1", "A1mini", "P1", "X1", "X1C", "P1P", "P1S",
-    "版本", "V1", "V2", "V3", "V4", "v1", "v2", "v3", "v4", "1.0", "2.0", "3.0", "4.0",
-    "100%", "200%", "150%", "80%", "50%", "70%", "尺寸", "厘米", "毫米", "打印", "切片",
-    "配置文件", "打印配置", "套件", "合集", "全套", "全彩", "定制", "DIY", "diy", "可定制", "参数化",
-    "无需AMS", "免支撑", "免", "适配", "通用", "兼容", "适用于", "支持", "自带",
-    "无需螺丝", "无需支撑", "快速打印", "一键打印", "无需胶水", "无需上色", "无需五金",
-    "即可打印", "打印即用", "即打印", "直接打印", "免安装",
-}
-_ILLEGAL = '/\\:*?"<>|'
-
-def _sanitize(s):
-    for ch in _ILLEGAL:
-        s = s.replace(ch, "-")
-    s = re.sub(r'\s+', ' ', s).strip()
-    return s
-
-def _strip_date(fn):
-    m = re.match(r'^(\d{4})', fn)
-    if m and 1 <= int(m.group(1)[:2]) <= 12:
-        return fn[m.end():]
-    return fn
-
-def _split_tokens(s):
-    return [p for p in re.split(r'[\s,，;；、/\\|:：·+_\-—～~]+', s) if p]
-
-def _clean_desc(s):
-    s = re.sub(r'[（(].*?[)）]', ' ', s)
-    s = re.sub(r'[\[\]【】]', ' ', s)
-    keep = []
-    for t in _split_tokens(s):
-        if t in NOISE_WORDS:
-            continue
-        if re.fullmatch(r'\d{1,3}|V\d+\.?\d*|\d+%', t):
-            continue
-        keep.append(t)
-    out = ' '.join(keep)
-    out = re.sub(r'无需支撑打印[！!]?', ' ', out)
-    out = re.sub(r'无需支撑|无需AMS|免支撑', ' ', out)
-    out = re.sub(r'分色分件|分件分色|分色打印|分件打印|一键打印|直接打印', ' ', out)
-    out = re.sub(r'[！!]+', '', out)
-    out = re.sub(r'\s+', ' ', out).strip()
-    return out
-
-def make_alias(filename, title=""):
-    base = filename[:-4] if filename.lower().endswith(".3mf") else filename
-    if title and title != base:
-        raw = title
-    else:
-        raw = _strip_date(base)
-    d = _clean_desc(raw)
-    if not d:
-        d = re.sub(r'\s+', ' ', raw).strip()
-    d = _sanitize(d)
-    d = re.sub(r'^[\s_\-]+', '', d).strip()
-    d = d[:26]
-    d = re.sub(r'[\s_\-]*$', '', d)
-    return d or base[:26]
-
-def sanitize_alias(alias):
-    """清洗用户/LLM 提供的归档名：去非法字符、压连字符、去首尾点/横杠。
-
-    归档时会以 alias 作为文件名落盘，任何含 / \\ 等的输入都可能把文件
-    写出目标目录，因此入库与落盘两侧都必须过这里。
-    """
-    a = _sanitize(str(alias or ""))
-    a = re.sub(r'-{2,}', '-', a)
-    a = a.strip().strip('.-')
-    return a.strip()
 
 # ---------------------------------------------------------------
 # SQLite
@@ -359,109 +125,31 @@ def _convert_to_jpeg(data, ext):
                     with open(dst, "rb") as f:
                         return f.read(), ".jpg"
             except Exception:
-                pass
+                LOG.debug("图片转换工具失败: %s", " ".join(cmd))
     return None
 
 
 def db_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    return dbm.db_conn(DB_PATH)
 
 def init_db():
-    os.makedirs(LIBRARY_ROOT, exist_ok=True)
-    os.makedirs(INBOX, exist_ok=True)
-    os.makedirs(THUMB_DIR, exist_ok=True)
-    os.makedirs(ATTACH_DIR, exist_ok=True)
-    conn = db_conn()
-    conn.executescript("""
-    CREATE TABLE IF NOT EXISTS files (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        abs_path TEXT UNIQUE,
-        filename TEXT,
-        folder TEXT,
-        size_mb REAL,
-        title TEXT, designer TEXT, license TEXT, creation_date TEXT,
-        design_id TEXT, profile_title TEXT,
-        objects INTEGER, vertices INTEGER, triangles INTEGER, plates INTEGER,
-        has_slice INTEGER, geom_sig TEXT, sha256 TEXT,
-        category TEXT, alias TEXT, target_dir TEXT,
-        status TEXT DEFAULT 'pending',
-        tags TEXT DEFAULT '', thumb TEXT DEFAULT '',
-        plate_imgs TEXT DEFAULT '',
-        created_at TEXT, applied_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS attachments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_id INTEGER,
-        name TEXT, abs_path TEXT, size_mb REAL,
-        created_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY, value TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_files_cat ON files(category);
-    CREATE INDEX IF NOT EXISTS idx_files_design ON files(design_id);
-    CREATE INDEX IF NOT EXISTS idx_files_sha ON files(sha256);
-    CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);
-    """)
-    # 迁移：老库补 plate_imgs 列
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(files)")]
-    if "plate_imgs" not in cols:
-        conn.execute("ALTER TABLE files ADD COLUMN plate_imgs TEXT DEFAULT ''")
-    # 迁移：老库补 attachments.rel_path 列（相对库根，便于数据迁移）
-    acols = [r["name"] for r in conn.execute("PRAGMA table_info(attachments)")]
-    if "rel_path" not in acols:
-        conn.execute("ALTER TABLE attachments ADD COLUMN rel_path TEXT DEFAULT ''")
-    conn.commit()
-    conn.close()
+    dbm.init_db(DB_PATH, LIBRARY_ROOT, INBOX, THUMB_DIR, ATTACH_DIR)
 
 def sha256_file(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    return dbm.sha256_file(path)
 
 def rel_to_root(path):
-    try:
-        return os.path.relpath(path, LIBRARY_ROOT)
-    except Exception:
-        return os.path.basename(path)
+    return dbm.rel_to_root(path, LIBRARY_ROOT)
 
 def trash_move(src):
-    """把 src 移入回收站目录，避免重名覆盖；返回目标路径，失败返回 None。"""
-    if not src or not os.path.exists(src):
-        return None
-    os.makedirs(TRASH_DIR, exist_ok=True)
-    base = os.path.basename(src)
-    dest = os.path.join(TRASH_DIR, base)
-    if os.path.abspath(dest) == os.path.abspath(src):
-        return dest
-    i = 2
-    b, e = os.path.splitext(base)
-    while os.path.exists(dest):
-        dest = os.path.join(TRASH_DIR, f"{b}_{i}{e}")
-        i += 1
-    try:
-        shutil.move(src, dest)
-    except Exception:
-        return None
-    return dest
+    return dbm.trash_move(src, TRASH_DIR)
 
 def attachment_full_path(row):
-    """把附件记录解析为当前库根下的绝对路径（相对路径优先，兼容老库绝对 abs_path）。"""
-    rel = row.get("rel_path") if hasattr(row, "get") else row["rel_path"]
-    if rel:
-        p = os.path.join(LIBRARY_ROOT, rel)
-        if os.path.exists(p):
-            return p
-    abs_p = row.get("abs_path") if hasattr(row, "get") else row["abs_path"]
-    if abs_p and os.path.exists(abs_p):
-        return abs_p
-    # 都不存在时仍返回相对解析结果，便于上层 404 统一处理
-    return os.path.join(LIBRARY_ROOT, rel) if rel else (abs_p or "")
+    return dbm.attachment_full_path(row, LIBRARY_ROOT)
+
+def file_full_path(row):
+    """把文件记录解析为当前库根下的绝对路径（rel_path 优先，兼容老记录）。"""
+    return dbm.file_full_path(row, LIBRARY_ROOT)
 
 # ---------------------------------------------------------------
 # LLM 增强功能
@@ -662,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # 客户端已断开，无需回包
         except Exception:
-            traceback.print_exc()
+            LOG.exception("请求处理失败: %s %s", method, self.path)
             try:
                 self._send(500, {"error": "服务器内部错误（详情见服务日志）"})
             except Exception:
@@ -678,20 +366,9 @@ class Handler(BaseHTTPRequestHandler):
             if not fp:
                 return self._send(404, {"error": "not found"})
             return self._serve_file(fp)
-        if p == "/api/stats":
-            return self._api_stats()
-        if p == "/api/files":
-            return self._api_search(parse_qs(u.query))
-        if p == "/api/about":
-            return self._api_about()
-        if p == "/api/categories":
-            return self._api_categories()
-        if p == "/api/config":
-            return self._api_get_config()
-        if p == "/api/attachments":
-            return self._api_attachments(parse_qs(u.query))
-        if p == "/api/dirs":
-            return self._api_dirs()
+        handler = GET_ROUTES.get(p)
+        if handler:
+            return handler(self, parse_qs(u.query))
         if p.startswith("/thumbs/"):
             fp = self._safe_under(THUMB_DIR, p[len("/thumbs/"):])
             if not fp:
@@ -713,46 +390,11 @@ class Handler(BaseHTTPRequestHandler):
     def _do_post(self):
         u = urlparse(self.path)
         p = u.path
-        if p == "/api/upload":
-            return self._api_upload()
-        if p == "/api/apply":
-            return self._api_apply(self._read_json())
-        if p == "/api/tags":
-            return self._api_set_tags(self._read_json())
-        if p == "/api/delete":
-            return self._api_delete(self._read_json())
-        if p == "/api/thumbnail":
-            return self._api_thumbnail()
-        if p == "/api/delete-thumb":
-            return self._api_delete_thumb(self._read_json())
-        if p == "/api/llm-classify":
-            return self._api_llm_classify(self._read_json())
-        if p == "/api/confirm-new-category":
-            return self._api_confirm_new_category(self._read_json())
-        if p == "/api/chat":
-            return self._api_chat(self._read_json())
-        if p == "/api/search-llm":
-            return self._api_search_llm(self._read_json())
-        if p == "/api/config":
-            return self._api_set_config(self._read_json())
-        if p == "/api/attach":
-            return self._api_attach()
-        if p == "/api/attachment-delete":
-            return self._api_attachment_delete(self._read_json())
-        if p == "/api/recategorize":
-            return self._api_recategorize(self._read_json())
-        if p == "/api/return-pending":
-            return self._api_return_pending(self._read_json())
-        if p == "/api/reset-library":
-            return self._api_reset_library(self._read_json())
-        if p == "/api/open-folder":
-            return self._api_open_folder(self._read_json())
-        if p == "/api/open-in-bambu":
-            return self._api_open_in_bambu(self._read_json())
-        if p == "/api/set-alias":
-            return self._api_set_alias(self._read_json())
-        if p == "/api/set-target":
-            return self._api_set_target(self._read_json())
+        handler = POST_ROUTES.get(p)
+        if handler:
+            # multipart 端点自行读 body，不做 JSON 预读
+            payload = None if p in MULTIPART_ROUTES else self._read_json()
+            return handler(self, payload)
         self._send(404, {"error": "not found"})
 
     def _serve_file(self, fp, fallback="application/octet-stream"):
@@ -770,7 +412,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     # ---- API ----
-    def _api_stats(self):
+    def _api_stats(self, _=None):
         conn = db_conn()
         total = conn.execute("SELECT COUNT(*) c FROM files").fetchone()["c"]
         pending = conn.execute("SELECT COUNT(*) c FROM files WHERE status='pending'").fetchone()["c"]
@@ -789,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
         rows = conn.execute("SELECT sha256, COUNT(*) c, GROUP_CONCAT(filename,' | ') fs FROM files WHERE sha256!='' GROUP BY sha256 HAVING c>1").fetchall()
         return [dict(r) for r in rows]
 
-    def _api_categories(self):
+    def _api_categories(self, _=None):
         conn = db_conn()
         uniq = {}
         for r in conn.execute("SELECT DISTINCT category FROM files WHERE category!=''"):
@@ -799,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ip": list(IP_NAME), "func": list(FUNC_MAP),
                          "custom": load_custom_categories(), "in_use": uniq})
 
-    def _api_get_config(self):
+    def _api_get_config(self, _=None):
         c = llm_client.load_config()
         # 不返回 api_key 明文，只返回是否已配置
         self._send(200, {
@@ -822,12 +464,15 @@ class Handler(BaseHTTPRequestHandler):
         if "paths" in data and data["paths"].get("library_root"):
             c["paths"]["library_root"] = str(data["paths"]["library_root"]).strip()
         llm_client.save_config(c)
-        # 若路径变了，刷新全局
+        # 若路径变了，刷新全局并按 rel_path 重定位已有索引（附件同理）
         global LIBRARY_ROOT, INBOX
+        old_root = LIBRARY_ROOT
         LIBRARY_ROOT = c["paths"]["library_root"]
         INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
         os.makedirs(LIBRARY_ROOT, exist_ok=True)
         os.makedirs(INBOX, exist_ok=True)
+        if os.path.abspath(LIBRARY_ROOT) != os.path.abspath(old_root):
+            dbm.rebase_paths(DB_PATH, LIBRARY_ROOT)
         self._send(200, {"ok": True})
 
     def _api_reset_library(self, data):
@@ -869,7 +514,7 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "removed": removed, "root": LIBRARY_ROOT})
 
-    def _api_about(self):
+    def _api_about(self, _=None):
         """返回面向普通用户的「关于」说明（Markdown 文本）。"""
         p = os.path.join(BASE, "ABOUT.md")
         if not os.path.exists(p):
@@ -946,26 +591,26 @@ class Handler(BaseHTTPRequestHandler):
                     f.write(p["data"])
                 plate_files.append(pf)
         except Exception:
-            pass
+            LOG.warning("提取摆盘图失败 %s: %s", path, traceback.format_exc(limit=1))
         plate_imgs = ",".join(plate_files)
         conn = db_conn()
         conn.execute("""
             INSERT OR REPLACE INTO files
             (abs_path, filename, folder, size_mb, title, designer, license, creation_date,
              design_id, profile_title, objects, vertices, triangles, plates, has_slice,
-             geom_sig, sha256, category, alias, target_dir, status, tags, thumb, plate_imgs, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             geom_sig, sha256, category, alias, target_dir, status, tags, thumb, plate_imgs, rel_path, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (path, filename, folder, round(size, 2), meta["title"], meta["designer"],
               meta["license"], meta["creation_date"], meta["design_id"], meta["profile_title"],
               meta["objects"], meta["vertices"], meta["triangles"], meta["plates"],
               1 if meta["has_slice"] else 0, meta["geom_sig"], h, category, alias, target,
-              "pending", "", thumb_name, plate_imgs, time.strftime("%Y-%m-%d %H:%M:%S")))
+              "pending", "", thumb_name, plate_imgs, rel, time.strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         rec = dict(conn.execute("SELECT * FROM files WHERE abs_path=?", (path,)).fetchone())
         conn.close()
         return rec
 
-    def _api_upload(self):
+    def _api_upload(self, _=None):
         fields, files = self._read_multipart()
         if not files:
             self._send(400, {"error": "缺少文件"})
@@ -1022,7 +667,7 @@ class Handler(BaseHTTPRequestHandler):
             # 重复文件防护：SHA256 重复且非最早副本，不允许归档
             if not self._is_earliest_dup(conn, row):
                 results.append({"id": fid, "ok": False, "error": "重复文件（非最早副本）不可归档", "skipped_duplicate": True}); continue
-            old = row["abs_path"]
+            old = file_full_path(row)
             if not os.path.exists(old):
                 results.append({"id": fid, "ok": False, "error": "源文件不存在"}); continue
             tdir = os.path.join(LIBRARY_ROOT, row["target_dir"]) if row["target_dir"] else LIBRARY_ROOT
@@ -1043,8 +688,8 @@ class Handler(BaseHTTPRequestHandler):
                 if os.path.abspath(new_path) != os.path.abspath(old):
                     shutil.move(old, new_path)
                 new_rel = rel_to_root(new_path)
-                conn.execute("UPDATE files SET abs_path=?, filename=?, folder=?, status='applied', applied_at=? WHERE id=?",
-                             (new_path, os.path.basename(new_path),
+                conn.execute("UPDATE files SET abs_path=?, rel_path=?, filename=?, folder=?, status='applied', applied_at=? WHERE id=?",
+                             (new_path, new_rel, os.path.basename(new_path),
                               os.path.dirname(new_rel) if new_rel else "",
                               time.strftime("%Y-%m-%d %H:%M:%S"), fid))
                 results.append({"id": fid, "ok": True, "new_path": new_path, "new_name": os.path.basename(new_path)})
@@ -1085,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
         if row["status"] == "pending":
             conn.close(); self._send(400, {"error": "已经是待整理状态"}); return
         # 1) 主文件移回 INBOX（冲突则加 _2/_3 后缀）
-        old_main = row["abs_path"] or ""
+        old_main = file_full_path(row) or ""
         moved_main = None
         if old_main and os.path.exists(old_main):
             base, ext = os.path.splitext(os.path.basename(old_main))
@@ -1117,10 +762,11 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE attachments SET abs_path=?, rel_path=? WHERE id=?", (adest, rel, a["id"]))
                 moved_att.append(os.path.basename(adest))
             except Exception:
-                pass
+                LOG.warning("附件移回待整理失败 id=%s: %s", a["id"], traceback.format_exc(limit=1))
         # 3) 更新索引：物理位置回到 INBOX，状态 pending（保留 category/target_dir/alias 便于再次归档）
-        conn.execute("UPDATE files SET abs_path=?, filename=?, folder=?, status='pending' WHERE id=?",
-                     (new_path, new_name, "00_待整理", fid))
+        new_rel = rel_to_root(new_path)
+        conn.execute("UPDATE files SET abs_path=?, rel_path=?, filename=?, folder=?, status='pending' WHERE id=?",
+                     (new_path, new_rel, new_name, "00_待整理", fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "id": fid, "new_path": new_path, "moved_attachments": moved_att})
 
@@ -1154,11 +800,11 @@ class Handler(BaseHTTPRequestHandler):
         if not fid:
             self._send(400, {"error": "need id"}); return
         conn = db_conn()
-        row = conn.execute("SELECT abs_path FROM files WHERE id=?", (fid,)).fetchone()
+        row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         conn.close()
         if not row:
             self._send(404, {"error": "not found"}); return
-        path = row["abs_path"]
+        path = file_full_path(row)
         if not path or not os.path.exists(path):
             self._send(404, {"error": "文件不存在于磁盘"}); return
         try:
@@ -1227,7 +873,7 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "target_dir": target})
 
-    def _api_dirs(self):
+    def _api_dirs(self, _=None):
         """返回模型根目录下所有已存在的目录（相对路径，按层级排序），供归档路径选择器使用。
 
         排除 00_待整理 与隐藏项；每个目录也返回它在磁盘上是否真实存在。
@@ -1274,7 +920,7 @@ class Handler(BaseHTTPRequestHandler):
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
         # 1) 主文件移入回收站（可恢复）
-        moved_main = trash_move(row["abs_path"])
+        moved_main = trash_move(file_full_path(row))
         # 2) 缩略图（可再生成）直接删除
         removed_thumbs = []
         for tname in ([row["thumb"]] if row["thumb"] else []) + \
@@ -1303,7 +949,7 @@ class Handler(BaseHTTPRequestHandler):
                          "removed_thumbs": removed_thumbs,
                          "moved_attachments": moved_att})
 
-    def _api_thumbnail(self):
+    def _api_thumbnail(self, _=None):
         fields, files = self._read_multipart()
         if not files:
             self._send(400, {"error": "need image"}); return
@@ -1360,7 +1006,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True})
 
     # ---- 附件 ----
-    def _api_attach(self):
+    def _api_attach(self, _=None):
         fields, files = self._read_multipart()
         fid = int(fields.get("id", 0))
         if not files:
@@ -1495,8 +1141,50 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": f"对话失败：{e}"})
 
 # ---------------------------------------------------------------
+# 路由表：路径 -> Handler 方法（统一签名 (self, payload)）
+# GET 的 payload 为 parse_qs 结果；POST 的 payload 为 JSON body
+# ---------------------------------------------------------------
+GET_ROUTES = {
+    "/api/stats": Handler._api_stats,
+    "/api/files": Handler._api_search,
+    "/api/about": Handler._api_about,
+    "/api/categories": Handler._api_categories,
+    "/api/config": Handler._api_get_config,
+    "/api/attachments": Handler._api_attachments,
+    "/api/dirs": Handler._api_dirs,
+}
+
+POST_ROUTES = {
+    "/api/upload": Handler._api_upload,
+    "/api/apply": Handler._api_apply,
+    "/api/tags": Handler._api_set_tags,
+    "/api/delete": Handler._api_delete,
+    "/api/thumbnail": Handler._api_thumbnail,
+    "/api/delete-thumb": Handler._api_delete_thumb,
+    "/api/llm-classify": Handler._api_llm_classify,
+    "/api/confirm-new-category": Handler._api_confirm_new_category,
+    "/api/chat": Handler._api_chat,
+    "/api/search-llm": Handler._api_search_llm,
+    "/api/config": Handler._api_set_config,
+    "/api/attach": Handler._api_attach,
+    "/api/attachment-delete": Handler._api_attachment_delete,
+    "/api/recategorize": Handler._api_recategorize,
+    "/api/return-pending": Handler._api_return_pending,
+    "/api/reset-library": Handler._api_reset_library,
+    "/api/open-folder": Handler._api_open_folder,
+    "/api/open-in-bambu": Handler._api_open_in_bambu,
+    "/api/set-alias": Handler._api_set_alias,
+    "/api/set-target": Handler._api_set_target,
+}
+
+# 以 multipart/form-data 收请求体的端点（body 是二进制，不能走 JSON 预读）
+MULTIPART_ROUTES = {"/api/upload", "/api/thumbnail", "/api/attach"}
+
+
+# ---------------------------------------------------------------
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+    _setup_logging()
     init_db()
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print("=" * 60)

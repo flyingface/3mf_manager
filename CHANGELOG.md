@@ -4,6 +4,12 @@
 
 ## [未发布]
 
+### 架构
+- **模块拆分**：`server.py`（组合根 + HTTP 路由表）、`classify.py`（分类/别名/目录规划纯逻辑）、`db.py`（存储层：schema/迁移/路径工具，显式传参不持全局）；路由由 if 链改为 `GET_ROUTES`/`POST_ROUTES` 表驱动
+- **分类规则数据化**：IP 关键词、目录映射、噪音词等外置到 `rules.json`，可直接编辑扩充，改完重启生效
+- **schema 版本化迁移**：`PRAGMA user_version` 逐级迁移（v1 基础表、v2 `files.rel_path`/`attachments.rel_path`）；`files` 表新增相对库根的 `rel_path`，切换模型根目录后自动按 rel_path 重定位绝对路径，换盘/迁移目录不再失效
+- **日志落地**：`logs/mfmanager.log` 轮转日志 + 控制台输出，替换关键路径的静默 `except: pass`，未捕获异常记录堆栈
+
 ### 安全
 - **修复 `/static/`、`/thumbs/` 路径穿越**：`GET /static/../library.db` 等可越出静态目录读到源码与数据库，现对路径做 realpath 前缀校验，越界一律 404
 - **归档名（alias）清洗**：手动设置与 LLM 返回的归档名在入库与归档落盘两侧统一清洗（去非法字符、压连字符、去首尾点/横杠），杜绝 `../` 注入把文件写出模型根目录

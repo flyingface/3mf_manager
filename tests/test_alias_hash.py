@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """别名生成 + 目标路径 + 工具函数测试。"""
 import server
+import classify
 
 
 class TestAlias:
@@ -31,6 +32,6 @@ class TestHash:
 
 class TestCleanDesc:
     def test_remove_noise_words(self):
-        # 直接测 server._clean_desc（内部函数）
-        assert "分色" not in server._clean_desc("分色 打印 元祖高达")
-        assert "元祖" in server._clean_desc("分色 打印 元祖高达")
+        # 直接测 classify._clean_desc（内部函数，随逻辑迁至 classify 模块）
+        assert "分色" not in classify._clean_desc("分色 打印 元祖高达")
+        assert "元祖" in classify._clean_desc("分色 打印 元祖高达")
