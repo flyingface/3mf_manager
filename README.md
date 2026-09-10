@@ -144,7 +144,7 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 | POST | `/api/chat` | 多轮对话智能体 |
 | POST | `/api/search-llm` | 语义检索 |
 | POST | `/api/reset-library` | 初始化模型根目录（清空数据并重置索引） |
-| GET | `/api/files` | 查询（q/cat/status/tag/design_id） |
+| GET | `/api/files` | 查询（q/cat/status/tag/design_id + limit/offset 分页，返回 total，行内嵌 attachments） |
 | GET | `/api/dirs` | 列出模型根目录下已存在目录（供归档路径选择） |
 | GET | `/api/stats` | 仪表盘统计 |
 | GET | `/api/categories` | 分类列表 |

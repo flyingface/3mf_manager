@@ -239,9 +239,55 @@ def llm_chat_reply(history, files_summary):
     messages.extend(history)
     return llm_client.chat(messages, temperature=0.4, max_tokens=800)
 
+def prefilter_files(query, limit=80, fallback=120):
+    """按查询词 LIKE 预筛文件清单，避免把全库塞进 LLM 上下文。
+    提取查询中长度 >=2 的词做 OR 匹配；无命中回退到最近的 fallback 条。"""
+    tokens = [t for t in re.split(r'[\s,，。？！?!.;；:：、]+', (query or "")) if len(t) >= 2][:6]
+    conn = db_conn()
+    rows = []
+    try:
+        if tokens:
+            conds, args = [], []
+            for t in tokens:
+                like = f"%{t}%"
+                conds.append("(filename LIKE ? OR title LIKE ? OR alias LIKE ? OR tags LIKE ? OR category LIKE ?)")
+                args += [like] * 5
+            sql = "SELECT * FROM files WHERE " + " OR ".join(conds) + " ORDER BY id DESC LIMIT ?"
+            rows = [dict(r) for r in conn.execute(sql, args + [limit])]
+        if not rows:
+            rows = [dict(r) for r in conn.execute("SELECT * FROM files ORDER BY id DESC LIMIT ?", (fallback,))]
+    finally:
+        conn.close()
+    return rows
+
 # ---------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------
+UPLOAD_SPOOL_THRESHOLD = 64 << 20  # 请求体超过 64MB 落盘解析，避免整包驻留内存
+
+
+class _Part:
+    """multipart 文件 part：在底层缓冲（bytes 或 mmap）区间上的只读流。
+
+    不把内容整体拷进内存；底层为 mmap 时由 GC 在处理结束后释放。
+    """
+
+    def __init__(self, name, filename, buf, start, end):
+        self.name = name
+        self.filename = filename
+        self._buf = buf
+        self._pos = start
+        self._end = end
+        self.size = end - start
+
+    def read(self, n=-1):
+        if n is None or n < 0:
+            n = self._end - self._pos
+        data = self._buf[self._pos:min(self._pos + n, self._end)]
+        self._pos += len(data)
+        return data
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -261,45 +307,83 @@ class Handler(BaseHTTPRequestHandler):
         ln = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(ln).decode("utf-8")) if ln else {}
 
-    def _read_multipart(self):
-        """解析 multipart，返回 {fields, files:[(name,filename,data)]}"""
-        ct = self.headers.get("Content-Type", "")
-        boundary = ct.split("boundary=", 1)[1].strip().strip('"').encode()
-        # 读取 body：优先 Content-Length，其次 chunked（Safari 图库选图等场景可能用 chunked）
+    def _read_body(self):
+        """读取请求体。小于阈值返回 bytes；超过则 spool 到临时文件返回 mmap（低内存）。"""
+        import mmap as _mmap
+        import tempfile
         cl = self.headers.get("Content-Length")
         if cl is not None:
-            body = self.rfile.read(int(cl))
-        elif "chunked" in (self.headers.get("Transfer-Encoding", "") or "").lower():
-            body = b""
-            while True:
-                line = self.rfile.readline()
-                if not line:
-                    break
-                try:
-                    size = int(line.strip().split(b";")[0], 16)
-                except ValueError:
-                    break
-                if size == 0:
-                    while True:
-                        t = self.rfile.readline()
-                        if t in (b"\r\n", b"\n", b""):
-                            break
-                    break
-                body += self.rfile.read(size)
-                self.rfile.readline()
-        else:
-            body = b""
-        parts = body.split(b"--" + boundary)
+            n = int(cl)
+            if n <= UPLOAD_SPOOL_THRESHOLD:
+                return self.rfile.read(n)
+
+            def chunks():
+                remaining = n
+                while remaining > 0:
+                    chunk = self.rfile.read(min(1 << 20, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            return self._spool(_mmap, tempfile, chunks())
+        if "chunked" in (self.headers.get("Transfer-Encoding", "") or "").lower():
+            def gen():
+                while True:
+                    line = self.rfile.readline()
+                    if not line:
+                        return
+                    try:
+                        size = int(line.strip().split(b";")[0], 16)
+                    except ValueError:
+                        return
+                    if size == 0:
+                        while True:
+                            t = self.rfile.readline()
+                            if t in (b"\r\n", b"\n", b""):
+                                break
+                        return
+                    yield self.rfile.read(size)
+                    self.rfile.readline()
+            return self._spool(_mmap, tempfile, gen())
+        return b""
+
+    @staticmethod
+    def _spool(_mmap, tempfile, chunk_iter):
+        spool = tempfile.TemporaryFile()
+        for chunk in chunk_iter:
+            spool.write(chunk)
+        spool.flush()
+        spool.seek(0)
+        return _mmap.mmap(spool.fileno(), 0, access=_mmap.ACCESS_READ)
+
+    def _read_multipart(self):
+        """解析 multipart，返回 ({fields}, [_Part|bytes 兼容元组文件列表])。
+
+        兼容性：返回的 files 元素同时提供 (name, filename, data) 元组解包
+        （小文件，data 为 bytes）与只读流接口 _Part（大文件走 mmap 区间）。
+        """
+        ct = self.headers.get("Content-Type", "")
+        boundary = ct.split("boundary=", 1)[1].strip().strip('"').encode()
+        buf = self._read_body()
+        sep = b"--" + boundary
         fields = {}
         files = []
-        for part in parts:
-            if b"\r\n\r\n" not in part:
+        # 用 find 循环切分（mmap/bytes 通吃，避免整体 split 拷贝）
+        pos = buf.find(sep)
+        while pos != -1:
+            seg_start = pos + len(sep)
+            nxt = buf.find(sep, seg_start)
+            seg_end = nxt if nxt != -1 else len(buf)
+            pos = nxt
+            hidx = buf.find(b"\r\n\r\n", seg_start, seg_end)
+            if hidx == -1:
                 continue
-            head, _, content = part.partition(b"\r\n\r\n")
-            hdr = head.decode("utf-8", "ignore")
-            # 只剥掉 boundary 前的一个尾部 \r\n；不能用 rsplit（会截断内部含 \r\n 的二进制内容）
-            if content.endswith(b"\r\n"):
-                content = content[:-2]
+            hdr = bytes(buf[seg_start:hidx]).decode("utf-8", "ignore")
+            cstart = hidx + 4
+            cend = seg_end
+            # 只剥掉 boundary 前的一个尾部 \r\n（不能 rsplit，会截断内部含 \r\n 的二进制）
+            if cend - 2 >= cstart and bytes(buf[cend - 2:cend]) == b"\r\n":
+                cend -= 2
             # name 兼容带引号/无引号
             nm = re.search(r'name="([^"]*)"', hdr) or re.search(r'name=([^;\r\n]+)', hdr)
             if not nm:
@@ -310,12 +394,12 @@ class Handler(BaseHTTPRequestHandler):
                   or re.search(r'filename="([^"]*)"', hdr, re.I)
                   or re.search(r'filename=([^;\r\n]+)', hdr, re.I))
             if fm:
-                files.append((name, unquote(fm.group(1)).strip(), content))
+                files.append(_Part(name, unquote(fm.group(1)).strip(), buf, cstart, cend))
             elif name == "file":
                 # 兜底：name=file 但无 filename（部分浏览器从照片图库选图时不带 filename），按文件处理
-                files.append((name, "", content))
+                files.append(_Part(name, "", buf, cstart, cend))
             else:
-                fields[name] = content.decode("utf-8", "ignore").strip()
+                fields[name] = bytes(buf[cstart:cend]).decode("utf-8", "ignore").strip()
         return fields, files
 
     def log_message(self, *a):
@@ -365,7 +449,9 @@ class Handler(BaseHTTPRequestHandler):
             fp = self._safe_under(STATIC, p[len("/static/"):])
             if not fp:
                 return self._send(404, {"error": "not found"})
-            return self._serve_file(fp)
+            if fp.endswith("index.html") or fp.endswith(".html"):
+                return self._serve_file(fp, cache="no-store")
+            return self._serve_file(fp, cache="public, max-age=300")
         handler = GET_ROUTES.get(p)
         if handler:
             return handler(self, parse_qs(u.query))
@@ -373,7 +459,8 @@ class Handler(BaseHTTPRequestHandler):
             fp = self._safe_under(THUMB_DIR, p[len("/thumbs/"):])
             if not fp:
                 return self._send(404, {"error": "not found"})
-            return self._serve_file(fp)
+            # 缩略图文件名含随机后缀，内容不可变，可长缓存
+            return self._serve_file(fp, cache="public, max-age=31536000, immutable")
         if p.startswith("/attachments/"):
             aid = p[len("/attachments/"):]
             conn = db_conn()
@@ -384,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
             full = attachment_full_path(r)
             if not full or not os.path.exists(full):
                 self._send(404, {"error": "not found"}); return
-            return self._serve_file(full)
+            return self._serve_file(full, cache="public, max-age=86400")
         self._send(404, {"error": "not found"})
 
     def _do_post(self):
@@ -397,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
             return handler(self, payload)
         self._send(404, {"error": "not found"})
 
-    def _serve_file(self, fp, fallback="application/octet-stream"):
+    def _serve_file(self, fp, fallback="application/octet-stream", cache="no-store"):
         if not os.path.isfile(fp):
             self._send(404, {"error": "file not found"})
             return
@@ -407,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(data)
 
@@ -528,40 +615,61 @@ class Handler(BaseHTTPRequestHandler):
         status = q.get("status", [""])[0].strip()
         tag = q.get("tag", [""])[0].strip()
         design = q.get("design_id", [""])[0].strip()
-        conn = db_conn()
-        sql = "SELECT * FROM files WHERE 1=1"
-        args = []
+        try:
+            limit = max(0, int(q.get("limit", ["0"])[0] or 0))
+            offset = max(0, int(q.get("offset", ["0"])[0] or 0))
+        except ValueError:
+            limit, offset = 0, 0
+        where, args = [], []
         if kw:
-            sql += " AND (filename LIKE ? OR title LIKE ? OR alias LIKE ? OR tags LIKE ? OR design_id LIKE ?)"
-            like = f"%{kw}%"
-            args += [like, like, like, like, like]
+            where.append("(filename LIKE ? OR title LIKE ? OR alias LIKE ? OR tags LIKE ? OR design_id LIKE ?)")
+            args += [f"%{kw}%"] * 5
         if cat:
-            sql += " AND (category LIKE ? OR target_dir LIKE ?)"; args += [f"%{cat}%", f"%{cat}%"]
+            where.append("(category LIKE ? OR target_dir LIKE ?)"); args += [f"%{cat}%", f"%{cat}%"]
         if status:
-            sql += " AND status=?"; args.append(status)
+            where.append("status=?"); args.append(status)
         if tag:
-            sql += " AND tags LIKE ?"; args.append(f"%{tag}%")
+            where.append("tags LIKE ?"); args.append(f"%{tag}%")
         if design:
-            sql += " AND design_id LIKE ?"; args.append(f"%{design}%")
-        sql += " ORDER BY created_at DESC, id DESC"
-        rows = [dict(r) for r in conn.execute(sql, args)]
-        # ---- 重复判定：相同 sha256 视为重复组；组内「最早一份」(created_at ASC,id ASC)
-        #      为原始可归档副本(is_earliest)，其余后进副本不可归档，显示红色「重复」状态 ----
+            where.append("design_id LIKE ?"); args.append(f"%{design}%")
+        wsql = (" WHERE " + " AND ".join(where)) if where else ""
+        conn = db_conn()
+        # ---- 重复判定在全量过滤集上计算（分页可能把同组切到不同页）----
+        dup_ids, earliest_ids = set(), set()
+        idsha = conn.execute(f"SELECT id, sha256, created_at FROM files{wsql}", args).fetchall()
         sha_groups = {}
-        for r in rows:
-            s = (r.get("sha256") or "").strip()
+        for r in idsha:
+            s = (r["sha256"] or "").strip()
             if s:
                 sha_groups.setdefault(s, []).append(r)
-        for s, grp in sha_groups.items():
+        for grp in sha_groups.values():
             if len(grp) > 1:
-                earliest = min(grp, key=lambda r: (r.get("created_at") or "", r.get("id") or 0))
+                earliest = min(grp, key=lambda r: (r["created_at"] or "", r["id"]))
                 for r in grp:
-                    r["is_duplicate"] = True
-                    r["is_earliest"] = (r is earliest)
+                    dup_ids.add(r["id"])
+                earliest_ids.add(earliest["id"])
+        total = len(idsha)
+        # ---- 分页取整行；limit=0 表示全量（兼容旧调用）----
+        sql = f"SELECT * FROM files{wsql} ORDER BY created_at DESC, id DESC"
+        qargs = list(args)
+        if limit:
+            sql += " LIMIT ? OFFSET ?"; qargs += [limit, offset]
+        rows = [dict(r) for r in conn.execute(sql, qargs)]
+        # ---- 附件聚合返回（消除前端逐卡片请求的 N+1）----
+        attmap = {}
+        if rows:
+            ids = [r["id"] for r in rows]
+            ph = ",".join("?" * len(ids))
+            for a in conn.execute(f"SELECT id, file_id, name, rel_path, abs_path, size_mb FROM attachments WHERE file_id IN ({ph}) ORDER BY id", ids):
+                attmap.setdefault(a["file_id"], []).append(dict(a))
         conn.close()
         for r in rows:
             r["path"] = r["abs_path"]
-        self._send(200, {"files": rows, "count": len(rows)})
+            if r["id"] in dup_ids:
+                r["is_duplicate"] = True
+                r["is_earliest"] = r["id"] in earliest_ids
+            r["attachments"] = attmap.get(r["id"], [])
+        self._send(200, {"files": rows, "count": len(rows), "total": total})
 
     def _ingest(self, path, sha256_hex=None):
         """解析 + 分类 + 别名 + hash + 提取摆盘图，写入索引。返回记录。
@@ -616,7 +724,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "缺少文件"})
             return
         results = []
-        for _, fname, data in files:
+        for part in files:
+            fname = part.filename
             if not fname.lower().endswith(".3mf"):
                 results.append({"name": fname, "ok": False, "error": "仅支持 .3mf"})
                 continue
@@ -628,7 +737,7 @@ class Handler(BaseHTTPRequestHandler):
                 dest = os.path.join(INBOX, f"{base}_{i}{ext}")
                 i += 1
             with open(dest, "wb") as f:
-                f.write(data)
+                shutil.copyfileobj(part, f)  # part 为只读流，大文件经 mmap 区间直写磁盘
             # hash 重复检测
             h = sha256_file(dest)
             conn = db_conn()
@@ -954,7 +1063,8 @@ class Handler(BaseHTTPRequestHandler):
         if not files:
             self._send(400, {"error": "need image"}); return
         fid = int(fields.get("id", 0))
-        _, fname, data = files[0]
+        part = files[0]
+        data = part.read()  # 图片体积小，读全即可
         # 按文件内容识别格式（不依赖扩展名），HEIC/BMP/TIFF 等自动转 JPEG
         ext = _sniff_image_type(data)
         if ext is None:
@@ -1019,14 +1129,14 @@ class Handler(BaseHTTPRequestHandler):
         tdir = os.path.join(LIBRARY_ROOT, row["target_dir"]) if row["target_dir"] else LIBRARY_ROOT
         os.makedirs(tdir, exist_ok=True)
         saved = []
-        for _, fname, data in files:
-            safe = re.sub(r'[\\/:*?"<>|]', '_', fname)
+        for part in files:
+            safe = re.sub(r'[\\/:*?"<>|]', '_', part.filename)
             dest = os.path.join(tdir, f"{int(time.time())}_{safe}")
             with open(dest, "wb") as f:
-                f.write(data)
+                shutil.copyfileobj(part, f)
             rel = os.path.relpath(dest, LIBRARY_ROOT)
             conn.execute("INSERT INTO attachments (file_id, name, abs_path, rel_path, size_mb, created_at) VALUES (?,?,?,?,?,?)",
-                         (fid, safe, dest, rel, round(len(data)/1024/1024, 2), time.strftime("%Y-%m-%d %H:%M:%S")))
+                         (fid, safe, dest, rel, round(part.size/1024/1024, 2), time.strftime("%Y-%m-%d %H:%M:%S")))
             saved.append(safe)
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "saved": saved})
@@ -1113,9 +1223,7 @@ class Handler(BaseHTTPRequestHandler):
         query = data.get("query", "")
         if not llm_client.llm_configured():
             self._send(400, {"error": "LLM 未配置"}); return
-        conn = db_conn()
-        rows = [dict(r) for r in conn.execute("SELECT * FROM files ORDER BY id")]
-        conn.close()
+        rows = prefilter_files(query)
         res = llm_semantic_search(query, rows)
         self._send(200, res)
 
@@ -1124,9 +1232,8 @@ class Handler(BaseHTTPRequestHandler):
         msg = data.get("message", "")
         if not llm_client.llm_configured():
             self._send(400, {"error": "LLM 未配置"}); return
-        conn = db_conn()
-        rows = [dict(r) for r in conn.execute("SELECT * FROM files ORDER BY id DESC LIMIT 300")]
-        conn.close()
+        # 只注入与消息相关的文件清单（预筛），不再全库 300 条
+        rows = prefilter_files(msg)
         summary = "\n".join(
             f"{r['id']}. {r['filename']} | {r['title']} | 分类:{r['category']} | tags:{r['tags']} | 状态:{r['status']}"
             for r in rows)
