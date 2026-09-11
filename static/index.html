@@ -214,6 +214,17 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .vzoom button:hover{background:#242c38;color:#fff}
 .vzoom .pct{font-size:11px;color:#9aa3b2;min-width:38px;text-align:center;font-variant-numeric:tabular-nums}
 /* ---- 对话 ---- */
+.chat-split{display:grid;grid-template-columns:1.25fr .85fr;gap:16px;align-items:start}
+.chat-panel,.res-panel{min-width:0}
+.res-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;box-shadow:var(--shadow)}
+.res-list{min-height:180px;max-height:calc(100vh - 360px);overflow-y:auto;display:flex;flex-direction:column;gap:7px;margin-bottom:10px}
+.res-item{display:flex;align-items:center;gap:9px;border:1px solid var(--border);border-radius:9px;padding:7px 9px;cursor:pointer;transition:.15s;background:var(--card)}
+.res-item:hover{border-color:var(--border2)}
+.res-item.on{border-color:var(--primary);background:var(--primary-soft)}
+.res-item img{width:36px;height:36px;border-radius:7px;object-fit:cover;background:var(--bg2);flex:none}
+.res-item .rn{flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-foot{display:flex;gap:8px}
+@media(max-width:960px){.chat-split{grid-template-columns:1fr}}
 .chat-box{display:flex;flex-direction:column;height:clamp(420px,calc(100vh - 300px),860px);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--bg)}
 .chat-msgs{flex:1;overflow-y:auto;padding:16px}
 .msg{margin-bottom:12px;display:flex;flex-wrap:wrap}
@@ -230,6 +241,15 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 @keyframes dotb{0%,60%,100%{transform:none;opacity:.5}30%{transform:translateY(-4px);opacity:1}}
 .chat-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);background:var(--card)}
 .chat-input input{flex:1}
+/* 回复内嵌文件卡片与确认执行条 */
+.fcards{display:flex;gap:8px;margin:9px 0 3px;flex-wrap:wrap}
+.fcard{width:112px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg);cursor:pointer;transition:.15s}
+.fcard:hover{border-color:var(--primary);transform:translateY(-1px)}
+.fcard img{width:100%;height:60px;object-fit:cover;display:block;background:var(--bg2)}
+.fcard .fc-n{padding:6px 8px 3px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcard .fc-c{padding:0 8px 7px}
+.confirm-strip{display:flex;align-items:center;gap:8px;margin-top:9px;background:var(--bg2);border:1px dashed var(--border2);border-radius:9px;padding:8px 10px;font-size:12px;flex-wrap:wrap}
+.sys-msg{align-self:center;font-size:11px;color:var(--tert);background:var(--bg2);border-radius:20px;padding:4px 12px;margin-bottom:10px}
 /* ---- 上传进度 ---- */
 .upbar{height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;margin-top:10px}
 .upbar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--primary),#7b4ff0);border-radius:3px;transition:width .2s}
@@ -411,17 +431,31 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 
     <!-- ===== 对话 ===== -->
     <section id="view-chat" style="display:none">
-      <div class="panel">
-        <div class="toolbar" style="justify-content:space-between">
-          <div class="panel-h" style="margin:0">模型库智能助手</div>
-          <button class="btn ghost sm" onclick="clearChat()">清空对话</button>
+      <div class="chat-split">
+        <div class="chat-panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:10px">
+            <div class="panel-h" style="margin:0">✦ 模型库智能助手</div>
+            <button class="btn ghost sm" onclick="clearChat()">清空对话</button>
+          </div>
+          <div class="hint" style="margin-bottom:10px">用自然语言检索你的 3MF 模型库；AI 提议的归档操作需你确认后执行。</div>
+          <div class="chat-box">
+            <div class="chat-msgs" id="chatMsgs"></div>
+            <div class="chat-input">
+              <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter')sendChat()">
+              <button class="btn p" onclick="sendChat()">发送</button>
+            </div>
+          </div>
         </div>
-        <div class="hint" style="margin-bottom:10px">用自然语言检索你的 3MF 模型库（需配置模型能力）。</div>
-        <div class="chat-box">
-          <div class="chat-msgs" id="chatMsgs"></div>
-          <div class="chat-input">
-            <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter')sendChat()">
-            <button class="btn p" onclick="sendChat()">发送</button>
+        <div class="res-panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:10px">
+            <div class="panel-h" style="margin:0">结果面板 <span class="hint" id="resCount"></span></div>
+            <button class="btn ghost sm" onclick="chatResAll()">全选</button>
+          </div>
+          <div class="hint" style="margin-bottom:10px">对话中提到的文件会出现在这里，勾选后可批量操作。</div>
+          <div class="res-list" id="resList"></div>
+          <div class="res-foot">
+            <button class="btn p sm" onclick="chatResArchive()">批量归档</button>
+            <button class="btn ghost sm" onclick="chatResTag()">打标签</button>
           </div>
         </div>
       </div>
@@ -1098,10 +1132,67 @@ function paintLib(){const w=$('#libWrap');if(!libItems.length){w.innerHTML=empty
 function libGo(p){if(p<1)return;libPage=p;search()}
 
 // ===== 对话 =====
+let _chatRes={};      // id -> 文件（结果面板数据）
+let _chatActionSeq=0; // 对话内 action 确认条的键
 function addMsg(role,text){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
 let sessionId='s'+Date.now();
-async function sendChat(){const msg=$('#chatIn').value.trim();if(!msg)return;$('#chatIn').value='';addMsg('user',msg);const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble"><span class="dots"><i></i><i></i><i></i></span>正在思考…</div>';$('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});const j=await r.json();if(!r.ok)throw new Error(j.error||'对话失败');const bubble=d.querySelector('.bubble');if((j.reply||'').includes('未配置')||(j.error||'').includes('未配置')){bubble.innerHTML=esc(j.reply||j.error)+` <button class="btn p sm" style="margin-left:8px" onclick="switchTab('settings')">去设置</button>`}else{bubble.textContent=j.reply}}catch(e){const bubble=d.querySelector('.bubble');if((e.message||'').includes('未配置')){bubble.innerHTML='LLM 未配置，需要先在设置中填写模型地址与模型名。 <button class="btn p sm" onclick="switchTab(\'settings\')">去设置</button>'}else{bubble.textContent='❌ '+e.message}}}
-function clearChat(){$('#chatMsgs').innerHTML='';sessionId='s'+Date.now();chatWelcome()}
+async function sendChat(){const msg=$('#chatIn').value.trim();if(!msg)return;$('#chatIn').value='';addMsg('user',msg);const d=document.createElement('div');d.className='msg ai';d.innerHTML='<div class="bubble"><span class="dots"><i></i><i></i><i></i></span>正在思考…</div>';$('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});const j=await r.json();if(!r.ok)throw new Error(j.error||'对话失败');const b=d.querySelector('.bubble');let html=esc(j.reply||'').replace(/\n/g,'<br>');if(j.files&&j.files.length){html+='<div class="fcards">'+j.files.map(f=>`<div class="fcard" onclick="openDrawer(${f.id})">${f.thumb?`<img src="/thumbs/${f.thumb}">`:'<img alt="" style="visibility:hidden">'}<div class="fc-n" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</div><div class="fc-c">${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}</div></div>`).join('')+'</div>';(j.files||[]).forEach(f=>{_chatRes[f.id]=f});renderChatRes()}if(j.action&&j.action.type==='archive'&&j.action.ids&&j.action.ids.length){_chatActionSeq++;const key='a'+_chatActionSeq;window._chatActions=window._chatActions||{};window._chatActions[key]=j.action.ids;html+=`<div class="confirm-strip">将归档 <b>${j.action.ids.length}</b> 个文件${j.action.target?` 到 <b>${esc(j.action.target)}</b>`:''}<button class="btn p sm" style="margin-left:auto" onclick="chatDoArchive('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button></div>`}b.innerHTML=html;$('#chatMsgs').scrollTop=1e9}catch(e){const b=d.querySelector('.bubble');if((e.message||'').includes('未配置')){b.innerHTML='LLM 未配置，需要先在设置中填写模型地址与模型名。 <button class="btn p sm" onclick="switchTab(\'settings\')">去设置</button>'}else{b.innerHTML=esc('❌ '+e.message)+' <button class="btn ghost sm" onclick="chatRetry(this)">重试</button>';b.dataset.q=msg}}}
+function chatRetry(btn){const q=btn.parentElement.dataset.q;if(!q)return;$('#chatIn').value=q;sendChat()}
+// 对话内确认执行归档（Propose-Confirm）
+async function chatDoArchive(key,btn){
+  const ids=(window._chatActions||{})[key]||[];
+  if(!ids.length)return;
+  if(btn)btn.disabled=true;
+  const strip=btn?btn.closest('.confirm-strip'):null;
+  try{
+    const target=(strip?strip.dataset.target:'')||'';
+    for(const id of ids){
+      if(target)await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:target})});
+    }
+    const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});
+    const j=await r.json();
+    const okN=(j.results||[]).filter(x=>x.ok).length;
+    if(strip)strip.innerHTML=`✓ 已归档 ${okN} / ${ids.length} 个文件`;
+    const sys=document.createElement('div');sys.className='sys-msg';sys.textContent=`✓ 已归档 ${okN}/${ids.length} 个文件`;$('#chatMsgs').appendChild(sys);$('#chatMsgs').scrollTop=1e9;
+    ids.forEach(i=>delete _chatRes[i]);renderChatRes();loadStats();
+  }catch(e){toast('归档失败：'+e.message);if(btn)btn.disabled=false}
+}
+// ===== 结果面板 =====
+function renderChatRes(){
+  const list=Object.values(_chatRes);
+  $('#resCount').textContent=list.length?`${list.length} 个`:'';
+  $('#resList').innerHTML=list.length?list.map(f=>`<label class="res-item on"><input type="checkbox" checked data-resid="${f.id}"><img src="/thumbs/${f.thumb||''}" onerror="this.style.visibility='hidden'"><span class="rn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span>${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}</label>`).join('')
+    :'<div class="hint" style="padding:10px">对话中提到的文件会出现在这里，勾选后可批量归档 / 打标签。</div>';
+}
+function chatResAll(){const boxes=[...document.querySelectorAll('#resList input[data-resid]')];const allOn=boxes.every(c=>c.checked);boxes.forEach(c=>{c.checked=!allOn;c.closest('.res-item').classList.toggle('on',!allOn)})}
+function chatResChecked(){return [...document.querySelectorAll('#resList input[data-resid]:checked')].map(c=>+c.dataset.resid)}
+async function chatResArchive(){
+  const ids=chatResChecked();
+  if(!ids.length){toast('先勾选文件');return}
+  window._chatActions=window._chatActions||{};
+  const key='res'+Date.now();
+  window._chatActions[key]=ids;
+  await chatDoArchive(key);
+  ids.forEach(i=>delete _chatRes[i]);
+  renderChatRes();loadPending();loadStats();
+}
+async function chatResTag(){
+  const ids=chatResChecked();
+  if(!ids.length){toast('先勾选文件');return}
+  openModal('给选中的 '+ids.length+' 个文件打标签',
+    `<input type="text" id="resTagIn" placeholder="输入标签，逗号分隔多个" style="width:100%">
+     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn ok" onclick="chatResTagApply()">应用</button></div>`);
+  setTimeout(()=>$('#resTagIn').focus(),60);
+  window._resTagIds=ids;
+}
+async function chatResTagApply(){
+  const ids=window._resTagIds||[];
+  const tags=$('#resTagIn').value.split(/[,，]/).map(t=>t.trim()).filter(Boolean);
+  if(!tags.length){toast('请输入至少一个标签');return}
+  await Promise.all(ids.map(id=>{const f=_chatRes[id]||{};const cur=(f.tags||'').split(',').filter(Boolean);const merged=[...new Set([...cur,...tags])];if(f)f.tags=merged.join(',');return fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags:merged})})}));
+  closeModal();toast(`已为 ${ids.length} 个文件添加标签`);
+}
+function clearChat(){$('#chatMsgs').innerHTML='';_chatRes={};renderChatRes();sessionId='s'+Date.now();chatWelcome()}
 function chatWelcome(){if($('#chatMsgs').children.length)return;const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble">你好，我是你的 3MF 模型库助手，可以试试：</div><div class="chat-chips">'+['帮我找所有高达相关模型','有哪些收纳类的文件？','列出待整理的文件'].map(s=>`<button class="chip" onclick="chipAsk(this)">${esc(s)}</button>`).join('')+'</div>';$('#chatMsgs').appendChild(d)}
 function chipAsk(el){$('#chatIn').value=el.textContent;sendChat()}
 

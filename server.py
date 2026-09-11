@@ -256,18 +256,44 @@ def llm_semantic_search(query, files, top_k=8):
         return {"files": [], "answer": f"LLM 检索失败：{e}"}
 
 def llm_chat_reply(history, files_summary):
-    """多轮对话回复（结合模型库上下文）。"""
+    """多轮对话（结构化输出）：返回 (reply, file_ids, action)。
+
+    action 白名单只有 archive（Propose-Confirm：AI 仅提议，前端确认后执行），
+    解析失败时把原始文本作为 reply 降级返回。
+    """
     sys_prompt = (
-        "你是 3MF 模型库的智能助手。你可以根据模型库文件信息回答用户关于 3D 打印模型的问题。\n"
-        "以下是当前模型库的简要清单（id. 文件名 | 标题 | 分类 | tags）。回答用户问题，若涉及具体文件请引用其文件名。\n"
-        "若问题超出文件信息范围，可结合通用知识回答。"
+        "你是 3MF 模型库的智能助手，可以检索模型库并提议归档操作。\n"
+        "以下是相关文件清单（id. 文件名 | 标题 | 分类 | tags | 状态）。\n"
+        '用 JSON 严格输出：{"reply": "给用户的自然语言回复", "file_ids": [回复中提到的文件 id],'
+        ' "action": null 或 {"type": "archive", "ids": [要归档的文件 id], "target": "归档目标分类或路径"}}\n'
+        "规则：\n"
+        "1. reply 回答用户问题；提到文件时必须把对应 id 放入 file_ids，便于前端展示文件卡片。\n"
+        "2. 仅当用户明确要求归档/整理某些文件时才给 action（type=archive）；否则 action 为 null。\n"
+        "3. action 只能是 archive 或 null；删除等其它操作一律不建议。\n"
+        "4. 若问题超出文件信息范围，可结合通用知识回答。"
     )
-    user_context = {"role": "user", "content": "（模型库清单）\n" + files_summary}
-    messages = [{"role": "system", "content": sys_prompt}]
-    # 插入上下文（不打断多轮）
-    messages.append(user_context)
+    user_context = {"role": "user", "content": "（相关文件清单）\n" + files_summary}
+    messages = [{"role": "system", "content": sys_prompt}, user_context]
     messages.extend(history)
-    return llm_client.chat(messages, temperature=0.4, max_tokens=800)
+    raw = llm_client.chat(messages, temperature=0.4, max_tokens=800)
+    try:
+        data = llm_client.extract_json(raw)
+    except ValueError:
+        return raw.strip(), [], None
+    reply = str(data.get("reply") or "").strip()
+    file_ids = [int(i) for i in (data.get("file_ids") or [])
+                if str(i).strip().lstrip("-").isdigit()]
+    action = data.get("action") if isinstance(data.get("action"), dict) else None
+    if action:
+        # 白名单：只放行 archive；ids 必须非空，否则整体视为无动作
+        if action.get("type") != "archive":
+            action = None
+        else:
+            ids = [int(i) for i in (action.get("ids") or [])
+                   if str(i).strip().lstrip("-").isdigit()]
+            action = {"type": "archive", "ids": ids,
+                      "target": str(action.get("target") or "").strip()} if ids else None
+    return reply, file_ids, action
 
 def prefilter_files(query, limit=80, fallback=120):
     """按查询词 LIKE 预筛文件清单，避免把全库塞进 LLM 上下文。
@@ -1402,9 +1428,19 @@ class Handler(BaseHTTPRequestHandler):
             for r in rows)
         llm_client.session_add(sid, "user", msg)
         try:
-            reply = llm_chat_reply(llm_client.session_get(sid), summary)
+            reply, file_ids, action = llm_chat_reply(llm_client.session_get(sid), summary)
             llm_client.session_add(sid, "assistant", reply)
-            self._send(200, {"reply": reply})
+            # 回复中提到的文件 → 详情卡片数据（仅安全字段）
+            files = []
+            valid_ids = set()
+            for rid in file_ids:
+                match = next((r for r in rows if r["id"] == rid), None)
+                if match and rid not in valid_ids:
+                    valid_ids.add(rid)
+                    files.append({"id": match["id"], "filename": match["filename"],
+                                  "alias": match["alias"], "category": match["category"],
+                                  "thumb": match["thumb"]})
+            self._send(200, {"reply": reply, "files": files, "action": action})
         except Exception as e:
             llm_client.session_clear(sid)
             self._send(500, {"error": f"对话失败：{e}"})
