@@ -255,35 +255,36 @@ def llm_semantic_search(query, files, top_k=8):
     except Exception as e:
         return {"files": [], "answer": f"LLM 检索失败：{e}"}
 
-def llm_chat_reply(history, files_summary):
-    """多轮对话（结构化输出）：返回 (reply, file_ids, action)。
+CHAT_SYS_PROMPT = (
+    "你是 3MF 模型库的智能助手，可以检索模型库并提议归档操作。\n"
+    "以下是相关文件清单（id. 文件名 | 标题 | 分类 | tags | 状态）。\n"
+    "先直接输出给用户的自然语言回复；然后在最后一行单独输出元数据行（回复正文里不要出现 META: 字样）：\n"
+    'META:{"file_ids": [回复中提到的文件 id], "action": null 或 {"type": "archive", "ids": [要归档的文件 id], "target": "归档目标分类或路径"}}\n'
+    "规则：\n"
+    "1. 提到文件时必须把对应 id 放入 file_ids，便于前端展示文件卡片。\n"
+    "2. 仅当用户明确要求归档/整理某些文件时才给 action（type=archive）；否则 action 为 null。\n"
+    "3. action 只能是 archive 或 null；删除等其它操作一律不建议。\n"
+    "4. 若问题超出文件信息范围，可结合通用知识回答。\n"
+    "5. 确保 META: 行是合法 JSON。"
+)
 
-    action 白名单只有 archive（Propose-Confirm：AI 仅提议，前端确认后执行），
-    解析失败时把原始文本作为 reply 降级返回。
-    """
-    sys_prompt = (
-        "你是 3MF 模型库的智能助手，可以检索模型库并提议归档操作。\n"
-        "以下是相关文件清单（id. 文件名 | 标题 | 分类 | tags | 状态）。\n"
-        '用 JSON 严格输出：{"reply": "给用户的自然语言回复", "file_ids": [回复中提到的文件 id],'
-        ' "action": null 或 {"type": "archive", "ids": [要归档的文件 id], "target": "归档目标分类或路径"}}\n'
-        "规则：\n"
-        "1. reply 回答用户问题；提到文件时必须把对应 id 放入 file_ids，便于前端展示文件卡片。\n"
-        "2. 仅当用户明确要求归档/整理某些文件时才给 action（type=archive）；否则 action 为 null。\n"
-        "3. action 只能是 archive 或 null；删除等其它操作一律不建议。\n"
-        "4. 若问题超出文件信息范围，可结合通用知识回答。"
-    )
-    user_context = {"role": "user", "content": "（相关文件清单）\n" + files_summary}
-    messages = [{"role": "system", "content": sys_prompt}, user_context]
-    messages.extend(history)
-    raw = llm_client.chat(messages, temperature=0.4, max_tokens=800)
-    try:
-        data = llm_client.extract_json(raw)
-    except ValueError:
-        return raw.strip(), [], None
-    reply = str(data.get("reply") or "").strip()
-    file_ids = [int(i) for i in (data.get("file_ids") or [])
+def _chat_messages(files_summary):
+    return [{"role": "system", "content": CHAT_SYS_PROMPT},
+            {"role": "user", "content": "（相关文件清单）\n" + files_summary}]
+
+def _chat_meta_validated(meta_data, rows):
+    """校验 META 数据 → (file_ids, files, action)。白名单只放行 archive。"""
+    file_ids = [int(i) for i in (meta_data.get("file_ids") or [])
                 if str(i).strip().lstrip("-").isdigit()]
-    action = data.get("action") if isinstance(data.get("action"), dict) else None
+    files, valid = [], set()
+    for rid in file_ids:
+        match = next((r for r in rows if r["id"] == rid), None)
+        if match and rid not in valid:
+            valid.add(rid)
+            files.append({"id": match["id"], "filename": match["filename"],
+                          "alias": match["alias"], "category": match["category"],
+                          "thumb": match["thumb"]})
+    action = meta_data.get("action") if isinstance(meta_data.get("action"), dict) else None
     if action:
         # 白名单：只放行 archive；ids 必须非空，否则整体视为无动作
         if action.get("type") != "archive":
@@ -293,7 +294,42 @@ def llm_chat_reply(history, files_summary):
                    if str(i).strip().lstrip("-").isdigit()]
             action = {"type": "archive", "ids": ids,
                       "target": str(action.get("target") or "").strip()} if ids else None
-    return reply, file_ids, action
+    return file_ids, files, action
+
+def _split_chat_meta(raw):
+    """把 LLM 输出拆成 (可见回复文本, META JSON 字符串或 None)。
+
+    约定最后一行形如 'META:{...}'；没有该行时整体视为回复文本。
+    """
+    text = raw or ""
+    idx = text.find("\nMETA:")
+    if idx != -1:
+        return text[:idx].strip(), text[idx + len("\nMETA:"):].strip()
+    if text.startswith("META:"):
+        return "", text[len("META:"):].strip()
+    return text.strip(), None
+
+def llm_chat_reply(history, files_summary, rows):
+    """非流式多轮对话：META 行协议；无 META 时兼容纯 JSON 结构化输出；否则纯文本降级。"""
+    raw = llm_client.chat(_chat_messages(files_summary), temperature=0.4, max_tokens=800)
+    reply, meta = _split_chat_meta(raw)
+    meta_data = None
+    if meta is not None:
+        try:
+            meta_data = json.loads(meta)
+        except ValueError:
+            meta_data = None
+    else:
+        # 兼容：模型可能直接输出完整 JSON（无 META 行）
+        try:
+            data = llm_client.extract_json(raw)
+            if isinstance(data, dict) and ("reply" in data or "file_ids" in data or "action" in data):
+                meta_data = data
+                reply = str(data.get("reply") or "").strip()
+        except ValueError:
+            meta_data = None
+    file_ids, files, action = _chat_meta_validated(meta_data or {}, rows)
+    return reply, files, action
 
 def prefilter_files(query, limit=80, fallback=120):
     """按查询词 LIKE 预筛文件清单，避免把全库塞进 LLM 上下文。
@@ -593,6 +629,7 @@ class Handler(BaseHTTPRequestHandler):
                     "configured": llm_client.llm_configured()},
             "paths": c["paths"],
             "library_root": LIBRARY_ROOT,
+            "last_ai_latency_ms": (llm_client.last_latency or {}).get("ms"),
         })
 
     def _api_set_config(self, data):
@@ -1043,6 +1080,66 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "target_dir": target})
 
+    def _api_chat_stream(self, data):
+        """流式对话（SSE）：打字机推送回复增量，META 行截留为最终结构化事件。
+
+          data: {"type":"delta","delta":..}
+          data: {"type":"final","reply":..,"files":[..],"action":..}
+        """
+        sid = data.get("session_id", "default")
+        msg = data.get("message", "")
+        if not llm_client.llm_configured():
+            self._send(400, {"error": "LLM 未配置"}); return
+        rows = prefilter_files(msg)
+        summary = "\n".join(
+            f"{r['id']}. {r['filename']} | {r['title']} | 分类:{r['category']} | tags:{r['tags']} | 状态:{r['status']}"
+            for r in rows)
+        llm_client.session_add(sid, "user", msg)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+        def emit(obj):
+            self.wfile.write(f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
+        try:
+            full = ""
+            emitted = 0
+            for delta in llm_client.chat_stream(_chat_messages(summary), temperature=0.4, max_tokens=800):
+                full += delta
+                cut = full.find("\nMETA:")
+                if cut == -1 and "META:" in full:
+                    cut = full.find("META:")
+                visible = cut if cut != -1 else max(0, len(full) - 6)  # 预扣可能的 META 头
+                if visible > emitted:
+                    emit({"type": "delta", "delta": full[emitted:visible]})
+                    emitted = visible
+            reply, meta = _split_chat_meta(full)
+            if emitted < len(reply):
+                emit({"type": "delta", "delta": reply[emitted:]})
+                emitted = len(reply)
+            meta_data = None
+            if meta:
+                try:
+                    meta_data = json.loads(meta)
+                except ValueError:
+                    LOG.warning("对话 META 行解析失败: %s", meta[:200])
+            file_ids, files, action = _chat_meta_validated(meta_data or {}, rows)
+            reply = reply.strip()
+            llm_client.session_add(sid, "assistant", reply)
+            emit({"type": "final", "reply": reply, "files": files, "action": action})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:
+            LOG.exception("流式对话异常")
+            try:
+                emit({"type": "error", "error": str(e)})
+            except Exception:
+                pass
+
     def _api_llm_batch_classify(self, data):
         """批量 AI 分类（SSE）。data: {ids, include_rule_matched?, hint?}
 
@@ -1428,18 +1525,8 @@ class Handler(BaseHTTPRequestHandler):
             for r in rows)
         llm_client.session_add(sid, "user", msg)
         try:
-            reply, file_ids, action = llm_chat_reply(llm_client.session_get(sid), summary)
+            reply, files, action = llm_chat_reply(llm_client.session_get(sid), summary, rows)
             llm_client.session_add(sid, "assistant", reply)
-            # 回复中提到的文件 → 详情卡片数据（仅安全字段）
-            files = []
-            valid_ids = set()
-            for rid in file_ids:
-                match = next((r for r in rows if r["id"] == rid), None)
-                if match and rid not in valid_ids:
-                    valid_ids.add(rid)
-                    files.append({"id": match["id"], "filename": match["filename"],
-                                  "alias": match["alias"], "category": match["category"],
-                                  "thumb": match["thumb"]})
             self._send(200, {"reply": reply, "files": files, "action": action})
         except Exception as e:
             llm_client.session_clear(sid)
@@ -1471,6 +1558,7 @@ POST_ROUTES = {
     "/api/apply-plan": Handler._api_apply_plan,
     "/api/confirm-new-category": Handler._api_confirm_new_category,
     "/api/chat": Handler._api_chat,
+    "/api/chat/stream": Handler._api_chat_stream,
     "/api/search-llm": Handler._api_search_llm,
     "/api/config": Handler._api_set_config,
     "/api/attach": Handler._api_attach,

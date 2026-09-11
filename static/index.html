@@ -479,7 +479,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
           <span class="hint">清空该目录下全部模型文件、子文件夹与索引（不可恢复）</span>
         </div>
       </div>
-      <div class="panel"><button class="btn p" onclick="saveConfig()">保存配置</button><span id="cfgStatus" class="hint" style="margin-left:10px"></span></div>
+      <div class="panel"><button class="btn p" onclick="saveConfig()">保存配置</button><span id="cfgStatus" class="hint" style="margin-left:10px"></span><span id="aiLatency" class="hint" style="margin-left:10px"></span></div>
     </section>
   </div>
 </div>
@@ -1136,7 +1136,58 @@ let _chatRes={};      // id -> 文件（结果面板数据）
 let _chatActionSeq=0; // 对话内 action 确认条的键
 function addMsg(role,text){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
 let sessionId='s'+Date.now();
-async function sendChat(){const msg=$('#chatIn').value.trim();if(!msg)return;$('#chatIn').value='';addMsg('user',msg);const d=document.createElement('div');d.className='msg ai';d.innerHTML='<div class="bubble"><span class="dots"><i></i><i></i><i></i></span>正在思考…</div>';$('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});const j=await r.json();if(!r.ok)throw new Error(j.error||'对话失败');const b=d.querySelector('.bubble');let html=esc(j.reply||'').replace(/\n/g,'<br>');if(j.files&&j.files.length){html+='<div class="fcards">'+j.files.map(f=>`<div class="fcard" onclick="openDrawer(${f.id})">${f.thumb?`<img src="/thumbs/${f.thumb}">`:'<img alt="" style="visibility:hidden">'}<div class="fc-n" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</div><div class="fc-c">${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}</div></div>`).join('')+'</div>';(j.files||[]).forEach(f=>{_chatRes[f.id]=f});renderChatRes()}if(j.action&&j.action.type==='archive'&&j.action.ids&&j.action.ids.length){_chatActionSeq++;const key='a'+_chatActionSeq;window._chatActions=window._chatActions||{};window._chatActions[key]=j.action.ids;html+=`<div class="confirm-strip">将归档 <b>${j.action.ids.length}</b> 个文件${j.action.target?` 到 <b>${esc(j.action.target)}</b>`:''}<button class="btn p sm" style="margin-left:auto" onclick="chatDoArchive('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button></div>`}b.innerHTML=html;$('#chatMsgs').scrollTop=1e9}catch(e){const b=d.querySelector('.bubble');if((e.message||'').includes('未配置')){b.innerHTML='LLM 未配置，需要先在设置中填写模型地址与模型名。 <button class="btn p sm" onclick="switchTab(\'settings\')">去设置</button>'}else{b.innerHTML=esc('❌ '+e.message)+' <button class="btn ghost sm" onclick="chatRetry(this)">重试</button>';b.dataset.q=msg}}}
+async function sendChat(){
+  const msg=$('#chatIn').value.trim();if(!msg)return;
+  $('#chatIn').value='';addMsg('user',msg);
+  const d=document.createElement('div');d.className='msg ai';
+  d.innerHTML='<div class="bubble"><span class="dots"><i></i><i></i><i></i></span>正在思考…</div>';
+  $('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;
+  const b=d.querySelector('.bubble');
+  try{
+    // 流式优先：打字机输出；服务端不支持时退回一次性渲染
+    const r=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:msg})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'对话失败')}
+    const reader=r.body.getReader(),dec=new TextDecoder();
+    let buf='',txt='',final=null;
+    const paint=()=>{b.innerHTML=esc(txt).replace(/\n/g,'<br>')||'<span class="dots"><i></i><i></i><i></i></span>正在思考…';$('#chatMsgs').scrollTop=1e9};
+    while(true){
+      const {done,value}=await reader.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});let i;
+      while((i=buf.indexOf('\n\n'))>=0){
+        const chunk=buf.slice(0,i);buf=buf.slice(i+2);
+        const line=chunk.split('\n').find(l=>l.startsWith('data: '));if(!line)continue;
+        const ev=JSON.parse(line.slice(6));
+        if(ev.type==='delta'){txt+=ev.delta;paint()}
+        else if(ev.type==='final'){final=ev}
+        else if(ev.type==='error')throw new Error(ev.error);
+      }
+    }
+    if(final){renderChatFinal(b,final)}
+    else if(txt){paint()}
+    else{b.textContent='（模型未返回内容，请重试）'}
+    $('#chatMsgs').scrollTop=1e9;
+  }catch(e){
+    const m=e.message||'';
+    if(m.includes('未配置')){b.innerHTML='LLM 未配置，需要先在设置中填写模型地址与模型名。 <button class="btn p sm" onclick="switchTab(\'settings\')">去设置</button>'}
+    else{b.innerHTML=esc('❌ '+m)+' <button class="btn ghost sm" onclick="chatRetry(this)">重试</button>';b.dataset.q=msg}
+    $('#chatMsgs').scrollTop=1e9;
+  }
+}
+function renderChatFinal(b,final){
+  let html=esc(final.reply||'').replace(/\n/g,'<br>');
+  if(final.files&&final.files.length){
+    html+='<div class="fcards">'+final.files.map(f=>`<div class="fcard" onclick="openDrawer(${f.id})">${f.thumb?`<img src="/thumbs/${f.thumb}">`:'<img alt="" style="visibility:hidden">'}<div class="fc-n" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</div><div class="fc-c">${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}</div></div>`).join('')+'</div>';
+    (final.files||[]).forEach(f=>{_chatRes[f.id]=f});
+    renderChatRes();
+  }
+  if(final.action&&final.action.type==='archive'&&final.action.ids&&final.action.ids.length){
+    _chatActionSeq++;const key='a'+_chatActionSeq;
+    window._chatActions=window._chatActions||{};window._chatActions[key]=final.action.ids;
+    html+=`<div class="confirm-strip">将归档 <b>${final.action.ids.length}</b> 个文件${final.action.target?` 到 <b>${esc(final.action.target)}</b>`:''}<button class="btn p sm" style="margin-left:auto" onclick="chatDoArchive('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button></div>`;
+  }
+  b.innerHTML=html;
+  $('#chatMsgs').scrollTop=1e9;
+}
 function chatRetry(btn){const q=btn.parentElement.dataset.q;if(!q)return;$('#chatIn').value=q;sendChat()}
 // 对话内确认执行归档（Propose-Confirm）
 async function chatDoArchive(key,btn){
@@ -1283,7 +1334,7 @@ async function deleteThumb(){if(!viewerFileId)return;if(!await uiConfirm({title:
 document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev();if(e.key==='Escape')closeViewer()}})
 
 // ===== 设置 =====
-async function loadConfig(){const r=await fetch('/api/config');const j=await r.json();$('#cfg-url').value=j.llm.base_url||'';$('#cfg-model').value=j.llm.model||'';$('#cfg-root').value=j.paths.library_root||'';$('#cfgStatus').textContent=j.llm.configured?'✓ 已配置':'（未配置模型）';window.LIB_ROOT=j.library_root||j.paths.library_root||''}
+async function loadConfig(){const r=await fetch('/api/config');const j=await r.json();$('#cfg-url').value=j.llm.base_url||'';$('#cfg-model').value=j.llm.model||'';$('#cfg-root').value=j.paths.library_root||'';$('#cfgStatus').textContent=j.llm.configured?'✓ 已配置':'（未配置模型）';window.LIB_ROOT=j.library_root||j.paths.library_root||'';const lat=$('#aiLatency');if(lat)lat.textContent=j.last_ai_latency_ms!=null?`上次 AI 调用 ${(j.last_ai_latency_ms/1000).toFixed(1)}s`:''}
 async function saveConfig(){const fd={llm:{base_url:$('#cfg-url').value.trim(),model:$('#cfg-model').value.trim(),api_key:$('#cfg-key').value.trim()},paths:{library_root:$('#cfg-root').value.trim()}};const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(fd)});const j=await r.json();toast(j.ok?'配置已保存':'失败');$('#cfgStatus').textContent='✓ 已保存';$('#cfg-key').value=''}
 
 // ===== 模态框 =====

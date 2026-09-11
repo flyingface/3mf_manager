@@ -53,8 +53,13 @@ def llm_configured():
     return bool(c.get("base_url") and c.get("model"))
 
 
+# 最近一次 LLM 调用耗时（毫秒），供设置页展示
+last_latency = {"ms": None}
+
+
 def chat(messages, temperature=0.3, max_tokens=2000):
-    """调用 LLM，返回文本。messages: [{"role":..,"content":..}]"""
+    """调用 LLM，返回完整文本。messages: [{"role":..,"content":..}]"""
+    import time as _time
     c = load_config()["llm"]
     if not c.get("base_url") or not c.get("model"):
         raise RuntimeError("LLM 未配置，请在设置中填写模型地址与模型名")
@@ -70,12 +75,51 @@ def chat(messages, temperature=0.3, max_tokens=2000):
     if c.get("api_key"):
         headers["Authorization"] = f"Bearer {c['api_key']}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
+    t0 = _time.monotonic()
     try:
-        return body["choices"][0]["message"]["content"]
-    except (KeyError, IndexError):
-        raise RuntimeError("LLM 返回格式异常: " + json.dumps(body)[:200])
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            return body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError):
+            raise RuntimeError("LLM 返回格式异常: " + json.dumps(body)[:200])
+    finally:
+        last_latency["ms"] = int((_time.monotonic() - t0) * 1000)
+
+
+def chat_stream(messages, temperature=0.3, max_tokens=2000):
+    """流式对话：逐段产出内容增量（OpenAI SSE 兼容，零第三方依赖）。"""
+    c = load_config()["llm"]
+    if not c.get("base_url") or not c.get("model"):
+        raise RuntimeError("LLM 未配置，请在设置中填写模型地址与模型名")
+    base = c["base_url"].rstrip("/")
+    url = base + "/chat/completions"
+    payload = {
+        "model": c["model"],
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+    if c.get("api_key"):
+        headers["Authorization"] = f"Bearer {c['api_key']}"
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        for raw_line in resp:
+            line = raw_line.decode("utf-8", "ignore").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+                delta = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content")
+            except (ValueError, AttributeError, IndexError):
+                continue
+            if delta:
+                yield delta
 
 
 def extract_json(text):
