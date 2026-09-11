@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 交互增强 · 交互效果图 — 3MF Manager</title>
+<link rel="icon" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E%3Crect width="32" height="32" rx="7" fill="%237b4ff0"/%3E%3Cpath d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="%23fff"/%3E%3C/svg%3E'>
+<style>
+:root{
+  --bg:#f6f7f9;--bg2:#eef0f4;--card:#ffffff;--border:#e4e7ee;--border2:#cfd4df;
+  --text:#16181d;--muted:#6a7180;--tert:#98a0b0;
+  --primary:#3b6df0;--primary-d:#2b56c8;--primary-soft:#e9effd;
+  --ok:#1a9a55;--ok-soft:#e6f6ee;--ok-border:#bfe3d0;
+  --warn:#c7781c;--warn-soft:#fdf3e2;--warn-border:#f0d9a8;
+  --err:#d64545;--err-soft:#fcecec;--err-border:#f2bcbc;
+  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);
+  --r-sm:8px;--r-md:12px;--r-lg:16px;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
+}
+:root.dark{
+  --bg:#0f1216;--bg2:#181d25;--card:#171c24;--border:#252c38;--border2:#37404f;
+  --text:#e6e9ef;--muted:#9aa3b2;--tert:#6b7484;
+  --primary:#5b86f5;--primary-d:#79a0ff;--primary-soft:#1d2740;
+  --ok:#35b977;--ok-soft:#122a1d;--ok-border:#204831;
+  --warn:#e2a34d;--warn-soft:#2f2410;--warn-border:#4e3e1d;
+  --err:#e26060;--err-soft:#341b1b;--err-border:#5c2e2e;
+  --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 20px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+::selection{background:var(--primary-soft)}
+
+/* ===== 效果图工作台布局 ===== */
+.work{display:flex;min-height:100vh}
+.wk-side{width:230px;flex-shrink:0;background:var(--card);border-right:1px solid var(--border);padding:18px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.wk-logo{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.wk-logo .cube{width:34px;height:34px;border-radius:9px;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+.wk-logo b{font-size:14px}
+.wk-logo span{display:block;font-size:10px;color:var(--muted);font-weight:400}
+.wk-nav{display:flex;flex-direction:column;gap:3px}
+.wk-nav button{display:flex;align-items:center;gap:9px;border:none;background:transparent;text-align:left;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13px;color:var(--muted);transition:.15s;width:100%}
+.wk-nav button .no{width:20px;height:20px;border-radius:6px;background:var(--bg2);color:var(--muted);font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.wk-nav button:hover{background:var(--bg2);color:var(--text)}
+.wk-nav button.on{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.wk-nav button.on .no{background:var(--grad);color:#fff}
+.wk-foot{margin-top:auto;padding:10px 8px;font-size:10px;color:var(--tert);line-height:1.6}
+.wk-main{flex:1;min-width:0;padding:22px 26px 60px}
+.wk-head{margin-bottom:16px}
+.wk-head h1{font-size:19px;font-weight:600;display:flex;align-items:center;gap:10px}
+.wk-head .theme{margin-left:auto}
+.wk-head p{font-size:12px;color:var(--muted);margin-top:4px}
+.stage{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
+.stage-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
+.stage-bar .dots{display:flex;gap:5px}
+.stage-bar .dots i{width:9px;height:9px;border-radius:50%;background:var(--bg2);border:1px solid var(--border)}
+.stage-body{position:relative;min-height:640px;background:var(--bg);overflow:hidden}
+.scene{display:none;padding:22px}
+.scene.on{display:block}
+.scene-note{margin:0 0 16px;font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px}
+.scene-note b{color:var(--text)}
+.callout{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:50%;background:var(--grad);color:#fff;font-size:9px;font-weight:700;vertical-align:1px;cursor:help}
+
+/* ===== 通用组件（与产品一致） ===== */
+.btn{border:none;border-radius:8px;padding:9px 15px;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.15s;white-space:nowrap}
+.btn.p{background:var(--primary);color:#fff}.btn.p:hover{background:var(--primary-d)}
+.btn.ok{background:var(--ok);color:#fff}
+.btn.ghost{background:var(--card);border:1px solid var(--border2);color:var(--text)}
+.btn.dg{background:var(--card);border:1px solid var(--border2);color:var(--err)}
+.btn.sm{padding:5px 11px;font-size:12px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn svg{width:15px;height:15px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d)}
+.pill.cat{background:var(--ok-soft);color:var(--ok)}
+.pill.y{background:var(--warn-soft);color:var(--warn)}
+.pill.r{background:var(--err-soft);color:var(--err)}
+input[type=text]{background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font-size:13px;color:var(--text);outline:none;width:100%}
+input[type=text]:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,109,240,.12)}
+.hint{font-size:12px;color:var(--muted)}
+.ai-ico{width:15px;height:15px;flex:none}
+.ai-grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:600}
+.ai-box{position:relative;background:var(--card);border:1px solid var(--border);border-left:3px solid transparent;border-image:linear-gradient(180deg,#3b6df0,#7b4ff0) 1;border-radius:0 var(--r-md) var(--r-md) 0;padding:11px 14px;font-size:12px}
+.thumb{width:56px;height:56px;border-radius:9px;object-fit:cover;background:linear-gradient(135deg,#dbe4f8,#e8dcf6);flex-shrink:0;display:block}
+.thumb.sm{width:36px;height:36px;border-radius:7px}
+
+/* ===== 场景 1：批量进度浮层 ===== */
+.s1-bg{position:relative;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--border);filter:saturate(.6);opacity:.55;pointer-events:none;min-height:480px}
+.overlay-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:5}
+.prog-card{width:420px;background:var(--card);border-radius:var(--r-lg);box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px;border:1px solid var(--border)}
+.prog-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.prog-head .spin{width:26px;height:26px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;color:#fff;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.12);opacity:.85}}
+.prog-card h3{font-size:15px;font-weight:600;flex:1}
+.upbar{height:8px;background:var(--bg2);border-radius:4px;overflow:hidden;margin:14px 0 8px}
+.upbar-fill{height:100%;width:42%;background:var(--grad);border-radius:4px;transition:width .3s}
+.prog-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.prog-cur{margin-top:12px;font-size:12px;color:var(--muted);background:var(--bg2);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.prog-cur .thumb{width:28px;height:28px;border-radius:6px}
+.prog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.prog-skip{margin-top:10px;font-size:11px;color:var(--tert);display:flex;align-items:center;gap:6px}
+
+/* ===== 场景 2：计划预览表 ===== */
+.plan-wrap{border:1px solid var(--border);border-radius:var(--r-md);background:var(--card);overflow:hidden}
+.plan-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border)}
+.plan-head h3{font-size:14px;font-weight:600;flex:1;display:flex;align-items:center;gap:8px}
+.plan-table{width:100%;font-size:12px;border-collapse:collapse}
+.plan-table th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:500;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px}
+.plan-table td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.plan-table tr.low td{background:var(--warn-soft)}
+.plan-table tr.fail td{background:var(--err-soft)}
+.plan-file{display:flex;align-items:center;gap:10px;min-width:0}
+.plan-file .fn{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+.plan-arrow{color:var(--tert);padding:0 4px}
+.conf{display:inline-flex;gap:2px}
+.conf i{width:6px;height:6px;border-radius:50%;background:var(--bg2);border:1px solid var(--border2)}
+.conf i.on{background:var(--ok);border-color:var(--ok)}
+.plan-new{background:var(--primary-soft);padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12px}
+.plan-foot{display:flex;align-items:center;gap:8px;padding:12px 16px}
+.conf-new-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+input[type=checkbox]{width:14px;height:14px;accent-color:var(--primary);cursor:pointer}
+.select-pill{border:1px solid var(--border2);border-radius:6px;padding:2px 6px;font-size:11px;color:var(--muted);background:var(--card);white-space:nowrap}
+
+/* ===== 场景 3：对话分栏 ===== */
+.chat-split{display:grid;grid-template-columns:1.2fr .9fr;gap:14px}
+.chat-panel,.res-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);display:flex;flex-direction:column;overflow:hidden}
+.panel-h{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+.panel-h .hint{margin-left:auto;font-weight:400}
+.chat-msgs{padding:14px;flex:1;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex}
+.msg.user{justify-content:flex-end}
+.bubble{max-width:85%;padding:10px 13px;border-radius:var(--r-lg);font-size:13px;line-height:1.6}
+.msg.user .bubble{background:var(--primary);color:#fff;border-bottom-right-radius:4px}
+.msg.ai .bubble{background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px;box-shadow:var(--shadow);max-width:100%;padding:12px 14px}
+.fcards{display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap}
+.fcard{width:118px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg);cursor:pointer;transition:.15s;position:relative}
+.fcard:hover{border-color:var(--primary);transform:translateY(-1px)}
+.fcard img{width:100%;height:64px;object-fit:cover;display:block}
+.fcard .fc-n{padding:6px 8px 3px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcard .fc-c{padding:0 8px 7px}
+.confirm-strip{display:flex;align-items:center;gap:8px;margin-top:9px;background:var(--bg2);border:1px dashed var(--border2);border-radius:9px;padding:8px 10px;font-size:12px}
+.sys-msg{align-self:center;font-size:11px;color:var(--tert);background:var(--bg2);border-radius:20px;padding:4px 12px}
+.res-list{padding:10px 12px;display:flex;flex-direction:column;gap:7px;overflow-y:auto;max-height:430px}
+.res-item{display:flex;align-items:center;gap:9px;border:1px solid var(--border);border-radius:9px;padding:7px 9px;background:var(--card)}
+.res-item.on{border-color:var(--primary);background:var(--primary-soft)}
+.res-item .rn{flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-foot{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px}
+
+/* ===== 场景 4：对话式纠正 ===== */
+.refine-wrap{max-width:520px;display:flex;flex-direction:column;gap:14px}
+.refine-title{font-size:12px;color:var(--muted)}
+.ai-suggest{font-size:12px}
+.ai-suggest .row1{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.ai-suggest .reason{color:var(--muted);margin-top:5px}
+.ai-suggest .ops{display:flex;gap:7px;margin-top:9px;align-items:center;flex-wrap:wrap}
+.refine-input{display:flex;gap:7px;margin-top:9px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chips .chip{border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:20px;padding:4px 11px;font-size:11px;cursor:pointer}
+.chips .chip:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.round-badge{font-size:10px;color:var(--tert);border:1px solid var(--border);border-radius:10px;padding:1px 8px}
+
+/* ===== 场景 5：教学 toast + 规则管理 ===== */
+.teach-row{display:flex;flex-direction:column;gap:18px;max-width:640px}
+.toast-demo{display:flex;align-items:center;gap:10px;background:#1c2330;color:#fff;border-radius:10px;padding:11px 16px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.toast-demo .btn{padding:5px 11px;font-size:12px}
+.teach-modal{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow);overflow:hidden}
+.teach-modal .tm-h{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px}
+.teach-modal .tm-b{padding:16px;font-size:12px;line-height:1.8}
+.kw-flow{display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap}
+.kw-pill{background:var(--primary-soft);color:var(--primary-d);border:1px solid var(--primary-soft);border-radius:8px;padding:5px 10px;font-weight:600}
+.rules-list{border:1px solid var(--border);border-radius:9px;overflow:hidden;font-size:12px}
+.rule-item{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--border)}
+.rule-item:last-child{border-bottom:none}
+.rule-item .rr{flex:1}
+.danger-link{color:var(--err);cursor:pointer;font-size:11px}
+.arrow-r{color:var(--tert)}
+</style>
+</head>
+<body>
+<div class="work">
+  <aside class="wk-side">
+    <div class="wk-logo"><div class="cube">✦</div><div><b>AI 交互增强</b><span>交互效果图 · 3MF Manager</span></div></div>
+    <nav class="wk-nav" id="wkNav">
+      <button data-s="s1" class="on"><span class="no">1</span>批量 AI 整理 · 进度态</button>
+      <button data-s="s2"><span class="no">2</span>批量 AI 整理 · 计划预览</button>
+      <button data-s="s3"><span class="no">3</span>对话助手 · 可操作结果</button>
+      <button data-s="s4"><span class="no">4</span>AI 分类 · 对话式纠正</button>
+      <button data-s="s5"><span class="no">5</span>教学闭环 · 规则管理</button>
+    </nav>
+    <div class="wk-foot">高保真效果图，仅演示交互形态。<br>复用产品现有设计 token 与组件。<br>点场景名切换；右上角可切深色。</div>
+  </aside>
+  <main class="wk-main">
+    <div class="wk-head">
+      <h1><span id="sceneTitle">批量 AI 整理 · 进度态</span><span class="theme"><button class="btn ghost sm" onclick="toggleTheme()">◐ 主题</button></span></h1>
+      <p id="sceneDesc">AI 逐个分析待整理文件，过程可见、可暂停；规则已命中的自动跳过。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-bar"><span class="dots"><i></i><i></i><i></i></span><span id="sceneCrumb">待整理页 · 全屏进度浮层</span></div>
+      <div class="stage-body">
+
+        <!-- ===== 场景 1 ===== -->
+        <section class="scene on" id="s1">
+          <div class="s1-bg" aria-hidden="true">
+            <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+              <div style="border:1.5px dashed var(--border2);border-radius:12px;padding:22px;text-align:center;color:var(--muted)">点击选择或拖入 .3mf 文件</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;gap:10px"><div class="thumb sm"></div><div style="flex:1"><div style="height:9px;width:70%;background:var(--bg2);border-radius:4px;margin-bottom:7px"></div><div style="height:9px;width:45%;background:var(--bg2);border-radius:4px"></div></div></div>
+                <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;gap:10px"><div class="thumb sm"></div><div style="flex:1"><div style="height:9px;width:60%;background:var(--bg2);border-radius:4px;margin-bottom:7px"></div><div style="height:9px;width:50%;background:var(--bg2);border-radius:4px"></div></div></div>
+                <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;gap:10px"><div class="thumb sm"></div><div style="flex:1"><div style="height:9px;width:75%;background:var(--bg2);border-radius:4px;margin-bottom:7px"></div><div style="height:9px;width:40%;background:var(--bg2);border-radius:4px"></div></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="overlay-center">
+            <div class="prog-card">
+              <div class="prog-head"><div class="spin">✦</div><h3>AI 正在整理</h3><span class="pill y">3 个新分类待确认</span></div>
+              <div class="upbar"><div class="upbar-fill"></div></div>
+              <div class="prog-meta"><span><b>5</b> / 12 个文件</span><span>已用 5 次调用 · 约 8s</span></div>
+              <div class="prog-cur"><div class="thumb sm"></div><div><div style="font-weight:500">4 d邓紫棋-最新.3mf</div><div class="hint" style="font-size:11px">正在识别分类与归档名…</div></div></div>
+              <div class="prog-skip"><span class="callout">1</span> 规则已命中 4 个文件，已自动跳过（省 4 次调用）</div>
+              <div class="prog-foot"><button class="btn ghost sm">暂停</button><button class="btn dg sm">取消</button></div>
+            </div>
+          </div>
+          <div class="scene-note" style="margin-top:18px"><b>注释：</b> <span class="callout">1</span> 规则命中的不送 LLM；<b>暂停</b>保留已完成部分，可直接进入计划预览；取消则全部丢弃。整个过程后台逐个调用（SSE 推进度），页面不阻塞。</div>
+        </section>
+
+        <!-- ===== 场景 2 ===== -->
+        <section class="scene" id="s2">
+          <div class="scene-note"><b>AI 出计划，人审计划：</b>低置信行 <span class="callout">2</span> 默认不勾选；新分类聚合一次确认 <span class="callout">3</span>；每行分类/归档名可点开直接改 <span class="callout">4</span>；失败行单独重试 <span class="callout">5</span>。确认后批量归档。</div>
+          <div class="plan-wrap">
+            <div class="plan-head">
+              <h3>✦ AI 整理计划 <span class="hint" style="font-weight:400">12 个文件 · 预计新增 2 个分类</span></h3>
+              <label class="conf-new-toggle"><input type="checkbox" checked> 全选高置信项</label>
+            </div>
+            <table class="plan-table">
+              <thead><tr><th style="width:34px"></th><th>文件</th><th>归档计划（分类 → 路径）</th><th>归档名</th><th>置信</th><th style="width:70px"></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><input type="checkbox" checked></td>
+                  <td><div class="plan-file"><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786280705_2_4addd6d5.png" onerror="this.removeAttribute('src')"><span class="fn">乖乖-浮雕画-侏罗纪</span></div></td>
+                  <td><span class="pill cat">浮雕画</span><span class="plan-arrow">→</span>02_功能实用/浮雕画</td>
+                  <td>乖乖-浮雕画-侏罗纪</td>
+                  <td><span class="conf"><i class="on"></i><i class="on"></i><i class="on"></i></span></td>
+                  <td><span class="select-pill">✎ 改</span></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" checked></td>
+                  <td><div class="plan-file"><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786291430_2_9ffe6c10.png" onerror="this.removeAttribute('src')"><span class="fn">lithophane.3mf</span></div></td>
+                  <td><span class="pill cat">浮雕画</span><span class="plan-arrow">→</span>02_功能实用/浮雕画</td>
+                  <td>灯片浮雕</td>
+                  <td><span class="conf"><i class="on"></i><i class="on"></i><i class="on"></i></span></td>
+                  <td><span class="select-pill">✎ 改</span></td>
+                </tr>
+                <tr class="low">
+                  <td><input type="checkbox"></td>
+                  <td><div class="plan-file"><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786283283_1_ad453c25.png" onerror="this.removeAttribute('src')"><span class="fn">4 d邓紫棋-最新.3mf</span></div></td>
+                  <td><span class="pill y">明星周边</span><span class="plan-arrow">→</span>01_IP授权/明星周边 <span class="hint">← 置信不足，请确认</span></td>
+                  <td>邓紫棋浮雕折扇</td>
+                  <td><span class="conf"><i class="on"></i><i class="on"></i><i></i></span></td>
+                  <td><span class="select-pill">✎ 改</span></td>
+                </tr>
+                <tr class="fail">
+                  <td><input type="checkbox"></td>
+                  <td><div class="plan-file"><span class="thumb sm"></span><span class="fn">unnamed_042.3mf</span></div></td>
+                  <td><span class="pill r">调用超时</span> <span class="hint">点击补充一句话描述可即时重判</span></td>
+                  <td class="hint">—</td>
+                  <td><span class="conf"><i></i><i></i><i></i></span></td>
+                  <td><span class="select-pill" style="color:var(--primary);border-color:var(--primary)">↻ 重试</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="plan-new">
+              <span class="callout">3</span>
+              <b>AI 建议新建 2 个分类：</b>
+              <span class="pill">手办/宠物小精灵 <small>×2 个文件</small></span>
+              <span class="pill">装饰/浮雕画 <small>×3 个文件</small></span>
+              <label class="conf-new-toggle" style="margin-left:auto"><input type="checkbox" checked> 创建并应用</label>
+            </div>
+            <div class="plan-foot">
+              <span class="hint"><span class="callout">4</span> 每行「改」可展开行内编辑：分类（带全量建议）/ 归档名 / 目标路径</span>
+              <span style="flex:1"></span>
+              <button class="btn ghost sm">全选</button>
+              <button class="btn ghost sm">取消</button>
+              <button class="btn p">应用计划（9 个文件）</button>
+            </div>
+          </div>
+          <div class="scene-note" style="margin-top:14px"><b>注释：</b> <span class="callout">5</span> 失败行支持输入一句话描述（如"这是一个疫苗盒收纳"）即时重判，不离开表格。「应用计划」逐行调用现有归档接口，结果 toast 汇总。</div>
+        </section>
+
+        <!-- ===== 场景 3 ===== -->
+        <section class="scene" id="s3">
+          <div class="scene-note"><b>对话只说不做 → 可操作：</b>回复内嵌文件卡片 <span class="callout">6</span>；AI 提议动作，人确认执行 <span class="callout">7</span>；右侧结果面板可勾选批量操作 <span class="callout">8</span>。删除类动作永远不进入对话。</div>
+          <div class="chat-split">
+            <div class="chat-panel">
+              <div class="panel-h">✦ 模型库助手<span class="hint">已连接 deepseek-v4-flash</span></div>
+              <div class="chat-msgs">
+                <div class="msg user"><div class="bubble">帮我找高达相关的模型，顺便归档掉</div></div>
+                <div class="msg ai"><div class="bubble">
+                  找到 <b>2 个</b>高达相关模型，均在待整理状态。建议归档到 <span class="pill">01_IP授权/高达Gundam</span>：
+                  <div class="fcards">
+                    <div class="fcard"><img src="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" onerror="this.removeAttribute('src')"><div class="fc-n">RX78-2 元祖高达</div><div class="fc-c"><span class="pill cat">IP·高达</span></div></div>
+                    <div class="fcard"><img src="http://127.0.0.1:8000/thumbs/p1786283259_8_37cfb5f7.png" onerror="this.removeAttribute('src')"><div class="fc-n">沙扎比浮雕像</div><div class="fc-c"><span class="pill cat">IP·高达</span></div></div>
+                  </div>
+                  <div class="confirm-strip"><span class="callout">7</span> 将移动 2 个文件到 高达Gundam/ 并按归档名重命名 <button class="btn p sm" style="margin-left:auto">执行</button><button class="btn ghost sm">忽略</button></div>
+                </div></div>
+                <div class="sys-msg">✓ 已归档 2 个文件到 01_IP授权/高达Gundam</div>
+                <div class="msg user"><div class="bubble">再帮我看看收纳类的有哪些</div></div>
+                <div class="msg ai"><div class="bubble">有 <b>3 个</b>收纳类模型，已在右侧列出 <span class="hint">← 右侧面板可勾选批量操作</span></div></div>
+              </div>
+            </div>
+            <div class="res-panel">
+              <div class="panel-h"><span class="callout">8</span> 结果面板 · 收纳类 <span class="hint">3 个</span></div>
+              <div class="res-list">
+                <label class="res-item on"><input type="checkbox" checked><div class="thumb sm"></div><span class="rn">Gridfinity 抽屉收纳</span><span class="pill cat">收纳/网格系统</span></label>
+                <label class="res-item on"><input type="checkbox" checked><div class="thumb sm"></div><span class="rn">药盒 分装盒</span><span class="pill cat">收纳/盒体/容器</span></label>
+                <label class="res-item"><input type="checkbox"><div class="thumb sm"></div><span class="rn">弹匣收纳盒</span><span class="pill cat">收纳/盒体/容器</span></label>
+              </div>
+              <div class="res-foot"><button class="btn ghost sm">全选</button><button class="btn p sm">批量归档</button><button class="btn ghost sm">打标签</button></div>
+            </div>
+          </div>
+          <div class="scene-note" style="margin-top:14px"><b>注释：</b> <span class="callout">6</span> 卡片 hover 出「详情 · 归档 · 打开」，详情复用右侧抽屉；AI 回复以 JSON 附带 <code>action</code> 字段，前端渲染确认条后才执行（Propose-Confirm）。结果面板与对话双向联动。</div>
+        </section>
+
+        <!-- ===== 场景 4 ===== -->
+        <section class="scene" id="s4">
+          <div class="scene-note"><b>纠正 ≠ 重来：</b>在建议上继续聊，上下文逐轮累积；第 1 轮 <span class="callout">9</span> → 用户纠正 → 第 2 轮 <span class="callout">10</span>。最多引导 3 轮，避免无限循环。</div>
+          <div class="refine-wrap">
+            <div class="refine-title">抽屉 · AI 分类建议（第 1 轮）</div>
+            <div class="ai-box ai-suggest">
+              <div class="row1"><span class="pill cat">浮雕画</span><span class="hint">归档名：</span><b>乖乖-浮雕画-侏罗纪</b><span class="round-badge">第 1 轮</span></div>
+              <div class="reason">理由：标题含「浮雕画」，图案为史前生物浮雕风格。</div>
+              <div class="ops"><button class="btn ok sm">采用</button><button class="btn ghost sm">不对？告诉它为什么 ↓</button></div>
+              <div class="refine-input" style="margin-top:10px">
+                <span class="callout" style="align-self:center">9</span>
+                <input type="text" value="这是侏罗纪公园的周边模型，不是单纯浮雕画">
+                <button class="btn p sm">发送</button>
+              </div>
+              <div class="chips"><span class="chip">这是恐龙模型</span><span class="chip">这是电影周边</span><span class="chip">按用途归类</span></div>
+            </div>
+            <div class="refine-title">第 2 轮（上下文已累积：标题 + 第 1 轮结论 + 你的纠正）</div>
+            <div class="ai-box ai-suggest">
+              <div class="row1"><span class="pill y">手办/恐龙 <small>新</small></span><span class="hint">归档名：</span><b>侏罗纪公园浮雕画</b><span class="round-badge">第 2 轮</span></div>
+              <div class="reason">理由：结合你的纠正「侏罗纪公园周边」，属于恐龙主题手办/摆件；建议新建「手办/恐龙」分类（库内已有 2 个类似文件可一并归入）。</div>
+              <div class="ops">
+                <button class="btn ok sm">创建新分类并采用</button>
+                <button class="btn ghost sm">再纠正</button>
+                <span class="hint">还可以直接在上方分类框手动输入</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== 场景 5 ===== -->
+        <section class="scene" id="s5">
+          <div class="scene-note"><b>让系统越用越准：</b>手动改分类后 toast 给出「记住规则」<span class="callout">11</span>；确认后写入已学习规则 <span class="callout">12</span>，规则透明、可删除 <span class="callout">13</span>。</div>
+          <div class="teach-row">
+            <div>
+              <div class="refine-title" style="margin-bottom:8px">① 手动改分类保存后的可操作 toast（页面底部居中）</div>
+              <div class="toast-demo">✓ 分类已更新，归档路径已重算 <button class="btn p sm" style="margin-left:12px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg> 以后同类文件都这样分</button><span style="opacity:.6;cursor:pointer">×</span></div>
+            </div>
+            <div class="teach-modal">
+              <div class="tm-h">✦ 记住这条分类规则？</div>
+              <div class="tm-b">
+                以后标题或文件名包含
+                <span class="kw-flow"><span class="kw-pill">侏罗纪</span><span class="arrow-r">→</span><span class="pill cat">手办/恐龙</span></span>
+                的文件，自动归入该分类。<br>
+                <label class="conf-new-toggle" style="margin-top:8px"><input type="checkbox" checked> 同时把「手办/恐龙」加入手动分类下拉建议</label>
+                <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost sm">暂不</button><button class="btn p sm">记住规则</button></div>
+              </div>
+            </div>
+            <div>
+              <div class="refine-title" style="margin-bottom:8px">② 设置页 · 已学习的分类规则（透明可撤销）</div>
+              <div class="rules-list">
+                <div class="rule-item"><span class="kw-pill">侏罗纪</span><span class="arrow-r">→</span><span class="pill cat">手办/恐龙</span><span class="rr hint">2 周前 · 已自动命中 3 次</span><span class="danger-link">删除</span></div>
+                <div class="rule-item"><span class="kw-pill">折扇</span><span class="arrow-r">→</span><span class="pill cat">明星周边</span><span class="rr hint">1 个月前 · 已自动命中 1 次</span><span class="danger-link">删除</span></div>
+                <div class="rule-item"><span class="kw-pill">苦力怕</span><span class="arrow-r">→</span><span class="pill cat">IP·Minecraft</span><span class="rr hint">内置规则</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+const TITLES={
+  s1:['批量 AI 整理 · 进度态','待整理页 · 全屏进度浮层','AI 逐个分析待整理文件，过程可见、可暂停；规则已命中的自动跳过。'],
+  s2:['批量 AI 整理 · 计划预览','待整理页 · 计划审阅表','AI 出计划、人审计划：低置信默认不勾，新分类一次确认，逐行可改。'],
+  s3:['对话助手 · 可操作结果','对话页 · 左右分栏','回复内嵌文件卡片，AI 提议动作、人确认执行，右侧结果面板可批量操作。'],
+  s4:['AI 分类 · 对话式纠正','抽屉 · AI 建议盒','纠正不是重开弹窗，而是在建议上继续聊，上下文逐轮累积。'],
+  s5:['教学闭环 · 规则管理','toast + 设置页','手动纠正沉淀为规则，系统越用越准；规则透明可撤销。'],
+};
+const nav=document.getElementById('wkNav');
+nav.addEventListener('click',e=>{
+  const b=e.target.closest('button[data-s]');if(!b)return;
+  nav.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  const k=b.dataset.s;
+  document.querySelectorAll('.scene').forEach(x=>x.classList.toggle('on',x.id===k));
+  document.getElementById('sceneTitle').textContent=TITLES[k][0];
+  document.getElementById('sceneCrumb').textContent=TITLES[k][1];
+  document.getElementById('sceneDesc').textContent=TITLES[k][2];
+});
+function toggleTheme(){document.documentElement.classList.toggle('dark')}
+</script>
+</body>
+</html>
