@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3MF Manager · 3D打印文件管理器</title>
+<link rel="icon" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop offset="0" stop-color="%233b6df0"/%3E%3Cstop offset="1" stop-color="%237b4ff0"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width="32" height="32" rx="7" fill="url(%23g)"/%3E%3Cpath d="M16 6.5l8.5 4.8v9.4L16 25.5l-8.5-4.8v-9.4z" fill="none" stroke="%23fff" stroke-width="1.8" stroke-linejoin="round"/%3E%3Cpath d="M7.5 11.3l8.5 4.8 8.5-4.8M16 16.1v9.4" fill="none" stroke="%23fff" stroke-width="1.8" stroke-linejoin="round"/%3E%3C/svg%3E'>
 <style>
 :root{
   --bg:#f6f7f9; --bg2:#eef0f4; --bg3:#f0f2f7; --card:#ffffff; --border:#e4e7ee; --border2:#cfd4df;
@@ -34,14 +35,14 @@ a{color:var(--primary);text-decoration:none}
 .main{flex:1;min-width:0;padding:22px 26px 60px}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .tb-left{display:flex;align-items:center;gap:12px}
-.tb-title{font-size:19px;font-weight:500}
+.tb-title{font-size:20px;font-weight:600;letter-spacing:.2px}
 .tb-sub{font-size:12px;color:var(--muted)}
 .statrow{display:flex;gap:8px}
 .stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 14px;text-align:center;min-width:74px}
-.stat .n{font-size:17px;font-weight:500;color:var(--text)}
+.stat .n{font-size:17px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
 .stat .l{font-size:11px;color:var(--muted)}
 .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;margin-bottom:18px;box-shadow:var(--shadow)}
-.panel-h{font-size:15px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.panel-h{font-size:15px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 /* ---- 控件 ---- */
 .btn{border:none;border-radius:var(--r-sm);padding:9px 15px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s,transform .05s,box-shadow .15s;display:inline-flex;align-items:center;gap:6px}
 .btn:active{transform:scale(.97)}
@@ -67,7 +68,7 @@ input::placeholder{color:var(--tert)}
 /* ---- 空状态 ---- */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:46px 20px;text-align:center;color:var(--muted)}
 .empty .ic{width:56px;height:56px;border-radius:16px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--tert);margin-bottom:14px}
-.empty .t{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px}
+.empty .t{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px}
 .empty .s{font-size:12px;color:var(--muted);margin-bottom:16px;max-width:300px;line-height:1.6}
 /* ---- 上传 ---- */
 .drop{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--border2);border-radius:var(--r-lg);padding:32px;text-align:center;color:var(--muted);cursor:pointer;background:var(--bg);transition:.15s}
@@ -75,7 +76,7 @@ input::placeholder{color:var(--tert)}
 .drop input{display:none}
 .drop .big{font-size:15px;font-weight:500;margin-bottom:4px;color:var(--text)}
 /* ---- 网格与卡片 ---- */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;align-items:start}
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s;position:relative}
 .card:hover{box-shadow:0 6px 24px rgba(16,24,40,.1)}
 .card.pending{border-top:3px solid var(--warn)}
@@ -87,12 +88,13 @@ input::placeholder{color:var(--tert)}
 .card-hd .th.empty{display:flex;align-items:center;justify-content:center;color:var(--tert);font-size:20px}
 /* 缩略图上传入口：hover 显示相机按钮 */
 .th-wrap{position:relative;flex-shrink:0}
+.th-wrap .th-meta{position:absolute;left:4px;bottom:4px;background:rgba(15,23,42,.55);color:#fff;font-size:10px;line-height:1;padding:4px 7px;border-radius:7px;pointer-events:none;font-variant-numeric:tabular-nums;backdrop-filter:blur(2px);white-space:nowrap;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis}
 .th-wrap .th-cam{position:absolute;right:4px;bottom:4px;width:24px;height:24px;border-radius:7px;border:none;background:rgba(15,23,42,.55);color:#fff;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;opacity:0;transition:opacity .15s,background .15s}
 .th-wrap:hover .th-cam{opacity:1}
 .th-wrap .th-cam:hover{background:rgba(59,109,240,.9)}
 .card-hd .cb{flex:1;min-width:0;display:flex;flex-direction:column}
 .card-hd .rt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.card-hd .rt .cname{font-weight:500;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
+.card-hd .rt .cname{font-weight:600;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
 .card-hd .pill{margin:0}
 .pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d);margin:2px 4px 2px 0}
 .pill.cat{background:var(--ok-soft);color:var(--ok)}
@@ -168,13 +170,14 @@ input::placeholder{color:var(--tert)}
 /* ---- 仪表盘 ---- */
 .dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
 .dash-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;text-align:center}
-.dash-card .num{font-size:28px;font-weight:500;color:var(--primary)}
+.dash-card .num{font-size:28px;font-weight:600;color:var(--primary);font-variant-numeric:tabular-nums}
 .dash-card .lbl{font-size:12px;color:var(--muted);margin-top:4px}
 /* ---- 设置 ---- */
 .form-row{display:grid;grid-template-columns:130px 1fr;gap:8px 14px;align-items:center;margin-bottom:14px}
 .form-row label{font-size:13px;color:var(--muted);text-align:right}
 .form-row input{width:100%}
-.settings-note{font-size:12px;color:var(--muted);background:var(--warn-soft);border:1px solid #f0d9a8;border-radius:var(--r-sm);padding:10px;margin-bottom:14px}
+/* 帮助说明用中性灰；黄色警示仅保留给真正需要注意的事项 */
+.settings-note{font-size:12px;color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;margin-bottom:14px;line-height:1.6}
 .danger-row{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
 .btn.danger{background:var(--err);color:#fff}.btn.danger:hover{filter:brightness(1.06)}.btn.danger[disabled]{opacity:.5;cursor:not-allowed}
 /* ---- 模态框（关于 / 初始化确认） ---- */
@@ -414,17 +417,17 @@ function cardHTML(f,collapsed=false){
   const infoCls=collapsed?'card-info collapsed':'card-info';
   const camTitle=f.thumb?'更换缩略图':'上传缩略图';
   const camBtn=`<button class="th-cam" title="${camTitle}" onclick="uploadThumb(${f.id});event.stopPropagation()">📷</button>`;
+  // 角标只承载体积（板数已由「摆盘×N」徽章表达；无预览图时才在角标补板数）
+  const thMeta = `<span class="th-meta">${(!plates.length && f.plates)?f.plates+'板 · ':''}${f.size_mb}MB</span>`;
   const thumb=f.thumb
-    ?`<div class="th-wrap"><img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="${esc(f.filename)}">${camBtn}</div>`
-    :`<div class="th-wrap"><div class="th empty" title="${esc(f.filename)}">未上传</div>${camBtn}</div>`;
+    ?`<div class="th-wrap"><img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="${esc(f.filename)}">${thMeta}${camBtn}</div>`
+    :`<div class="th-wrap"><div class="th empty" title="${esc(f.filename)}">未上传</div>${thMeta}${camBtn}</div>`;
   const catPill=f.category?`<span class="pill cat">${esc(f.category)}</span>`:'';
   // 头部主标题：优先用别名（更短可读），无别名则用文件名（单行省略）
   const headTitle=(f.alias&&f.alias!==f.filename)?f.alias:f.filename;
   const metaPills=`
     ${(f.is_duplicate&&!f.is_earliest)?`<span class="pill r" title="存在相同 SHA256 的文件，不可归档">重复</span>`:''}
-    ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}
-    ${f.plates?`<span class="pill">${f.plates}板</span>`:''}
-    <span class="pill">${f.size_mb}MB</span>`;
+    ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}`;
   // 状态显示：归档按钮仅由「状态」决定（pending 显示，与所在界面无关）；其余状态显示文字徽章
   // 状态显示：pending 一律显示「归档」按钮；非最早副本的重复文件禁用该按钮
   // （红色「重复」标记只显示在不可归档的后进副本上；最早可归档副本不显示）
