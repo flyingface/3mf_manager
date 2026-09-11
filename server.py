@@ -82,6 +82,19 @@ def load_custom_categories():
         return []
     return [x for x in (row["value"].split(",") if row and row["value"] else []) if x]
 
+def validate_rel_target(raw):
+    """校验用户提供的相对归档子路径：合法返回归一化路径（/ 分隔），非法返回 None。
+
+    拒绝：父级穿越(..)、当前目录(.)、盘符/冒号（Windows 绝对路径会逃逸库根）。
+    """
+    raw = (raw or "").strip().strip("/\\")
+    if not raw:
+        return None
+    parts = [p for p in re.split(r"[\\/]+", raw) if p]
+    if not parts or any(p in ("..", ".") for p in parts) or any(":" in p for p in parts):
+        return None
+    return "/".join(parts)
+
 # ---------------------------------------------------------------
 # SQLite
 # ---------------------------------------------------------------
@@ -157,20 +170,21 @@ def file_full_path(row):
 def llm_classify(info, existing_categories, rule_category, hint=""):
     """用 LLM 判断：现有分类是否合适；不合适则给出新分类建议。
     hint: 用户补充分类提示（可选）。非空时模型优先参考该提示分类；留空走默认逻辑。
-    返回 {"ok":bool,"category":str,"reason":str,"is_new":bool}
+    返回 {"category":str,"is_new":bool,"reason":str,"alias":str,"confidence":"high/medium/low"}
     """
     hint = (hint or "").strip()
     existing = ", ".join(sorted(set(existing_categories))) or "（无）"
     sys_prompt = (
         "你是 3D 打印模型分类助手。根据给定的模型信息，判断最合适的分类与归档名。\n"
         "现有分类如下，用 JSON 严格输出：\n"
-        '{"category": "分类名", "is_new": true/false, "reason": "一句话理由", "alias": "简短归档名"}\n'
+        '{"category": "分类名", "is_new": true/false, "reason": "一句话理由", "alias": "简短归档名", "confidence": "high/medium/low"}\n'
         "规则：\n"
         "1. 若能从现有分类中找到合适项，返回该分类名，is_new=false。\n"
         "2. 若现有分类都不合适，返回一个简洁的新分类名（如 '手办/宠物小精灵' 或 'IP·某某'），is_new=true。\n"
         "3. 分类名尽量沿用现有体系风格。\n"
         "4. alias 是用于归档的简短可读文件名（不含扩展名，≤26字），基于标题/内容提炼，去除版本号/尺寸/打印参数等噪音词（如 V2、150%、免支撑、AMS、多色等），如标题为「哪吒之魔童降世 手办 V2 150%」则 alias 给「哪吒手办」。\n"
-        "5. 若模型信息中的专有名词、角色、IP、作品名等你不理解，可通过网络搜索确认其类别与常见归类后再判断，不要凭猜测分类。"
+        "5. confidence 是你对本次分类的置信度自评：证据充分（标题/文件名明确指向）给 high，仅部分线索或依赖推断给 medium，基本靠猜测给 low。\n"
+        "6. 若模型信息中的专有名词、角色、IP、作品名等你不理解，可通过网络搜索确认其类别与常见归类后再判断，不要凭猜测分类。"
     )
     user_msg = (
         f"模型信息：\n文件名：{info.get('filename','')}\n"
@@ -190,11 +204,15 @@ def llm_classify(info, existing_categories, rule_category, hint=""):
         {"role": "user", "content": user_msg},
     ], temperature=0.2)
     data = llm_client.extract_json(raw)
+    conf = str(data.get("confidence", "medium")).strip().lower()
+    if conf not in ("high", "medium", "low"):
+        conf = "medium"
     return {
         "category": str(data.get("category", rule_category)).strip(),
         "is_new": bool(data.get("is_new", False)),
         "reason": str(data.get("reason", "")),
         "alias": str(data.get("alias", "")).strip(),
+        "confidence": conf,
     }
 
 def llm_semantic_search(query, files, top_k=8):
@@ -762,6 +780,43 @@ class Handler(BaseHTTPRequestHandler):
         earliest = min(grp, key=lambda r: (r["created_at"] or "", r["id"]))
         return earliest["id"] == row["id"]
 
+    def _apply_row(self, conn, row, do_rename=True):
+        """对单行执行归档（移动 + 改名 + 更新索引），返回结果 dict。供 /api/apply 与 apply-plan 复用。"""
+        fid = row["id"]
+        if not row or row["status"] == "applied":
+            return {"id": fid, "ok": False, "error": "不存在或已执行"}
+        # 重复文件防护：SHA256 重复且非最早副本，不允许归档
+        if not self._is_earliest_dup(conn, row):
+            return {"id": fid, "ok": False, "error": "重复文件（非最早副本）不可归档", "skipped_duplicate": True}
+        old = file_full_path(row)
+        if not os.path.exists(old):
+            return {"id": fid, "ok": False, "error": "源文件不存在"}
+        tdir = os.path.join(LIBRARY_ROOT, row["target_dir"]) if row["target_dir"] else LIBRARY_ROOT
+        os.makedirs(tdir, exist_ok=True)
+        new_name = row["filename"]
+        if do_rename and row["alias"]:
+            clean = sanitize_alias(row["alias"])
+            if clean:  # 清洗后为空则保留原文件名，杜绝 ../ 等注入落盘
+                new_name = clean + ".3mf"
+        new_path = os.path.join(tdir, new_name)
+        if os.path.abspath(new_path) != os.path.abspath(old):
+            b, e = os.path.splitext(new_name)
+            i = 2
+            while os.path.exists(new_path):
+                new_path = os.path.join(tdir, f"{b}_{i}{e}")
+                i += 1
+        try:
+            if os.path.abspath(new_path) != os.path.abspath(old):
+                shutil.move(old, new_path)
+            new_rel = rel_to_root(new_path)
+            conn.execute("UPDATE files SET abs_path=?, rel_path=?, filename=?, folder=?, status='applied', applied_at=? WHERE id=?",
+                         (new_path, new_rel, os.path.basename(new_path),
+                          os.path.dirname(new_rel) if new_rel else "",
+                          time.strftime("%Y-%m-%d %H:%M:%S"), fid))
+            return {"id": fid, "ok": True, "new_path": new_path, "new_name": os.path.basename(new_path)}
+        except Exception as e:
+            return {"id": fid, "ok": False, "error": str(e)}
+
     def _api_apply(self, data):
         ids = data.get("ids", [])
         do_rename = data.get("rename", True)
@@ -771,39 +826,7 @@ class Handler(BaseHTTPRequestHandler):
         results = []
         for fid in ids:
             row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
-            if not row or row["status"] == "applied":
-                results.append({"id": fid, "ok": False, "error": "不存在或已执行"}); continue
-            # 重复文件防护：SHA256 重复且非最早副本，不允许归档
-            if not self._is_earliest_dup(conn, row):
-                results.append({"id": fid, "ok": False, "error": "重复文件（非最早副本）不可归档", "skipped_duplicate": True}); continue
-            old = file_full_path(row)
-            if not os.path.exists(old):
-                results.append({"id": fid, "ok": False, "error": "源文件不存在"}); continue
-            tdir = os.path.join(LIBRARY_ROOT, row["target_dir"]) if row["target_dir"] else LIBRARY_ROOT
-            os.makedirs(tdir, exist_ok=True)
-            new_name = row["filename"]
-            if do_rename and row["alias"]:
-                clean = sanitize_alias(row["alias"])
-                if clean:  # 清洗后为空则保留原文件名，杜绝 ../ 等注入落盘
-                    new_name = clean + ".3mf"
-            new_path = os.path.join(tdir, new_name)
-            if os.path.abspath(new_path) != os.path.abspath(old):
-                b, e = os.path.splitext(new_name)
-                i = 2
-                while os.path.exists(new_path):
-                    new_path = os.path.join(tdir, f"{b}_{i}{e}")
-                    i += 1
-            try:
-                if os.path.abspath(new_path) != os.path.abspath(old):
-                    shutil.move(old, new_path)
-                new_rel = rel_to_root(new_path)
-                conn.execute("UPDATE files SET abs_path=?, rel_path=?, filename=?, folder=?, status='applied', applied_at=? WHERE id=?",
-                             (new_path, new_rel, os.path.basename(new_path),
-                              os.path.dirname(new_rel) if new_rel else "",
-                              time.strftime("%Y-%m-%d %H:%M:%S"), fid))
-                results.append({"id": fid, "ok": True, "new_path": new_path, "new_name": os.path.basename(new_path)})
-            except Exception as e:
-                results.append({"id": fid, "ok": False, "error": str(e)})
+            results.append(self._apply_row(conn, row, do_rename))
         conn.commit(); conn.close()
         self._send(200, {"results": results})
 
@@ -975,14 +998,133 @@ class Handler(BaseHTTPRequestHandler):
             target = target_relpath(row["category"], row["filename"], row["title"], row["folder"]) if row["category"] else ""
         else:
             # 安全校验：按段检查——禁父级穿越(..)、当前目录(.)、盘符/冒号（Windows 盘符绝对路径会逃逸库根）
-            parts = [p for p in re.split(r"[\\/]+", raw) if p]
-            if (not parts or any(p in ("..", ".") for p in parts)
-                    or any(":" in p for p in parts)):
+            target = validate_rel_target(raw)
+            if target is None:
                 conn.close(); self._send(400, {"error": "归档路径不合法（仅支持相对子目录路径）"}); return
-            target = "/".join(parts)
         conn.execute("UPDATE files SET target_dir=? WHERE id=?", (target, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "target_dir": target})
+
+    def _api_llm_batch_classify(self, data):
+        """批量 AI 分类（SSE）。data: {ids, include_rule_matched?, hint?}
+
+        逐个文件调用 LLM 并以 text/event-stream 推送进度：
+          data: {"type":"skip","id":..,"done":n,"total":N,"rule_category":..}   规则已命中跳过
+          data: {"type":"progress","id":..,"done":n,"total":N,"filename":.., result...}  单个完成
+          data: {"type":"progress","id":..,"done":n,"total":N,"filename":..,"error":..} 单个失败
+          data: {"type":"done","total":N,"skipped":k}
+        客户端断开（取消/暂停）即终止循环，已完成部分由客户端保留。
+        """
+        ids = data.get("ids") or []
+        include_rule = bool(data.get("include_rule_matched", False))
+        hint = (data.get("hint") or "").strip()
+        if not ids:
+            self._send(400, {"error": "no ids"}); return
+        if not llm_client.llm_configured():
+            self._send(400, {"error": "LLM 未配置"}); return
+        conn = db_conn()
+        rows = []
+        for fid in ids:
+            r = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+            if r and r["status"] == "pending":
+                rows.append(dict(r))
+        existing = [r["category"] for r in conn.execute("SELECT DISTINCT category FROM files WHERE category!=''")]
+        conn.close()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")  # close 定界，SSE 客户端读到 EOF
+        self.end_headers()
+
+        def emit(obj):
+            self.wfile.write(f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
+        total = len(rows)
+        done = skipped = 0
+        try:
+            for row in rows:
+                rule_cat = categorize(row["folder"], row["filename"], row["title"], custom_cats=load_custom_categories())
+                if rule_cat != "其他/未分类" and not include_rule:
+                    skipped += 1
+                    done += 1
+                    emit({"type": "skip", "id": row["id"], "filename": row["filename"],
+                          "done": done, "total": total, "rule_category": rule_cat})
+                    continue
+                try:
+                    res = llm_classify(row, existing, rule_cat, hint)
+                    res["id"] = row["id"]
+                    res["filename"] = row["filename"]
+                    res["thumb"] = row["thumb"] or ""
+                    res.setdefault("confidence", "medium")
+                    done += 1
+                    emit({"type": "progress", "done": done, "total": total, **res})
+                except Exception as e:
+                    done += 1
+                    LOG.warning("批量 AI 分类单文件失败 id=%s: %s", row["id"], e)
+                    emit({"type": "progress", "id": row["id"], "filename": row["filename"],
+                          "done": done, "total": total, "error": str(e)})
+            emit({"type": "done", "total": total, "skipped": skipped})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # 客户端取消/暂停
+        except Exception as e:
+            LOG.exception("批量 AI 分类异常")
+            try:
+                emit({"type": "error", "error": str(e)})
+            except Exception:
+                pass
+
+    def _api_apply_plan(self, data):
+        """应用 AI 整理计划。data: {items:[{id, category, alias, target_dir?}], new_categories?:[...]}
+
+        流程：新分类写入 custom_categories → 逐行写 category/alias/target（仅 pending，
+        路径经安全校验，非法路径该行失败不中断）→ 复用 _apply_row 归档 → 汇总结果。
+        """
+        items = data.get("items") or []
+        new_categories = [str(c).strip() for c in (data.get("new_categories") or []) if str(c).strip()]
+        if not items:
+            self._send(400, {"error": "no items"}); return
+        conn = db_conn()
+        # 1) 新分类入库（供后续规则分类与手动下拉使用）
+        if new_categories:
+            conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('custom_categories',?)", ("",))
+            row = conn.execute("SELECT value FROM settings WHERE key='custom_categories'").fetchone()
+            cur = row["value"] if row else ""
+            lst = [x for x in cur.split(",") if x] if cur else []
+            for c in new_categories:
+                if c not in lst:
+                    lst.append(c)
+            conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('custom_categories',?)", (",".join(lst),))
+        conn.commit()
+        # 2) 逐行落分类/别名/路径并归档
+        ok_list, failed = [], []
+        for it in items:
+            fid = it.get("id")
+            cat = (it.get("category") or "").strip()
+            alias = sanitize_alias(it.get("alias") or "")
+            raw_target = (it.get("target_dir") or "").strip()
+            row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+            if not row:
+                failed.append({"id": fid, "error": "not found"}); continue
+            if row["status"] != "pending":
+                failed.append({"id": fid, "error": "已归档文件不可重新分类"}); continue
+            if not cat:
+                failed.append({"id": fid, "error": "category required"}); continue
+            target = target_relpath(cat, row["filename"], row["title"], row["folder"])
+            if raw_target:
+                v = validate_rel_target(raw_target)
+                if v is None:
+                    failed.append({"id": fid, "error": "归档路径不合法"}); continue
+                target = v
+            alias_final = alias or make_alias(row["filename"], row["title"])
+            conn.execute("UPDATE files SET category=?, target_dir=?, alias=? WHERE id=?",
+                         (cat, target, alias_final, fid))
+            conn.commit()  # 先落编辑再归档，失败可追溯
+            row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+            r = self._apply_row(conn, row, do_rename=True)
+            (ok_list if r.get("ok") else failed).append(r if r.get("ok") else {"id": fid, "error": r.get("error")})
+        conn.commit(); conn.close()
+        self._send(200, {"ok": True, "applied": ok_list, "failed": failed})
 
     def _api_dirs(self, _=None):
         """返回模型根目录下所有已存在的目录（相对路径，按层级排序），供归档路径选择器使用。
@@ -1270,6 +1412,8 @@ POST_ROUTES = {
     "/api/thumbnail": Handler._api_thumbnail,
     "/api/delete-thumb": Handler._api_delete_thumb,
     "/api/llm-classify": Handler._api_llm_classify,
+    "/api/llm-batch-classify": Handler._api_llm_batch_classify,
+    "/api/apply-plan": Handler._api_apply_plan,
     "/api/confirm-new-category": Handler._api_confirm_new_category,
     "/api/chat": Handler._api_chat,
     "/api/search-llm": Handler._api_search_llm,

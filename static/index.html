@@ -17,6 +17,7 @@
   --r-sm:8px; --r-md:12px; --r-lg:16px;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
   --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);
 }
 /* ---- 暗色模式：跟随系统偏好；:root.dark 提供手动开关通道 ---- */
 @media(prefers-color-scheme:dark){
@@ -30,6 +31,7 @@
     --info:#5b86f5;--info-soft:#1d2740;--info-border:#2f4370;
     --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 20px rgba(0,0,0,.35);
     --shadow-sm:0 1px 2px rgba(0,0,0,.45);
+    --grad:linear-gradient(135deg,#5b86f5,#9a6ff5);
   }
 }
 :root.dark{
@@ -42,6 +44,7 @@
   --info:#5b86f5;--info-soft:#1d2740;--info-border:#2f4370;
   --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 20px rgba(0,0,0,.35);
   --shadow-sm:0 1px 2px rgba(0,0,0,.45);
+  --grad:linear-gradient(135deg,#5b86f5,#9a6ff5);
 }
 /* 显式浅色：用于深色系统下手动切回浅色 */
 :root.light{
@@ -54,6 +57,7 @@
   --info:#3b6df0;--info-soft:#e9effd;--info-border:#bcd0fb;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
   --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;font-size:13px}
@@ -274,6 +278,40 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 /* ---- toast ---- */
 .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:#1c2330;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;z-index:300;opacity:0;transition:.25s;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* ---- 批量 AI 整理 ---- */
+.batch-mask{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:260;backdrop-filter:blur(2px)}
+.batch-mask.show{display:flex}
+.batch-card{width:460px;max-width:92vw;background:var(--card);border-radius:var(--r-lg);box-shadow:0 20px 60px rgba(0,0,0,.35);padding:22px}
+.batch-head{display:flex;align-items:center;gap:10px}
+.batch-head .spin{width:26px;height:26px;border-radius:50%;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex:none;animation:aipulse 1.6s ease-in-out infinite}
+@keyframes aipulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+.batch-head h3{font-size:15px;font-weight:600;flex:1}
+.batch-cur{font-size:12px;color:var(--muted);background:var(--bg2);border-radius:8px;padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ---- AI 整理计划预览 ---- */
+.plan-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;justify-content:center;align-items:flex-start;z-index:255;backdrop-filter:blur(2px);overflow-y:auto;padding:28px 16px}
+.plan-mask.show{display:flex}
+.plan-modal{width:980px;max-width:96vw;background:var(--card);border-radius:var(--r-lg);box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden}
+.plan-mhead{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600}
+.plan-mhead .gt{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.plan-mbody{padding:14px 18px;max-height:calc(92vh - 150px);overflow-y:auto}
+.plan-mfoot{display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--border);flex-wrap:wrap}
+.plan-tb{width:100%;border-collapse:collapse;font-size:12px}
+.plan-tb th{text-align:left;padding:8px 10px;color:var(--muted);font-weight:500;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;white-space:nowrap}
+.plan-tb td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.plan-tb tr.low td{background:var(--warn-soft)}
+.plan-tb tr.fail td{background:var(--err-soft)}
+.plan-file{display:flex;align-items:center;gap:9px;min-width:0}
+.plan-file img{width:36px;height:36px;border-radius:7px;object-fit:cover;background:var(--bg2);flex:none}
+.plan-file .fn{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.conf-dots{display:inline-flex;gap:3px}
+.conf-dots i{width:6px;height:6px;border-radius:50%;background:var(--bg2);border:1px solid var(--border2)}
+.conf-dots i.on{background:var(--ok);border-color:var(--ok)}
+.plan-editrow td{background:var(--bg)!important;border-bottom:1px solid var(--border)}
+.plan-edit{display:grid;grid-template-columns:1.2fr 1fr 1.2fr;gap:8px}
+.plan-edit input{width:100%;padding:7px 10px;font-size:12px}
+.plan-newstrip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--primary-soft);border-radius:9px;padding:9px 12px;font-size:12px;margin-bottom:12px}
+.plan-newstrip:empty{display:none}
+.plan-newstrip label{margin-left:auto;display:inline-flex;align-items:center;gap:5px;cursor:pointer}
 .viewer-head .btn,.pager .btn{border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:var(--r-sm);padding:5px 10px;font-size:12px;cursor:pointer}
 /* ---- 响应式 ---- */
 @media(max-width:1024px){
@@ -343,7 +381,10 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
       <div class="panel">
         <div class="toolbar" style="justify-content:space-between">
           <div class="panel-h" style="margin:0">待整理文件 <span style="font-weight:400;color:var(--muted)">(<span id="pendCount">0</span>)</span></div>
-          <button class="btn ok" onclick="applyAll()">确认全部归档</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn p" id="aiBatchBtn" onclick="aiBatchStart()"></button>
+            <button class="btn ok" onclick="applyAll()">确认全部归档</button>
+          </div>
         </div>
         <div id="pendingWrap"></div>
       </div>
@@ -439,6 +480,36 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
   <div class="modal" id="modalBox">
     <div class="modal-head"><span id="modalTitle"></span><button class="modal-x" onclick="closeModal()">✕</button></div>
     <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="batch-mask" id="batchMask">
+  <div class="batch-card">
+    <div class="batch-head"><div class="spin">✦</div><h3>AI 正在整理</h3><span class="pill y" id="batchPct">0 / 0 个</span></div>
+    <div class="upbar" style="margin-top:14px"><div class="upbar-fill" id="batchBar"></div></div>
+    <div class="hint" id="batchMeta" style="margin-top:8px"></div>
+    <div id="batchCur" style="margin-top:10px"></div>
+    <div class="modal-actions" style="margin-top:14px"><button class="btn dg sm" onclick="aiBatchCancel()">取消</button></div>
+  </div>
+</div>
+
+<div class="plan-mask" id="planMask">
+  <div class="plan-modal">
+    <div class="plan-mhead"><span class="gt">✦ AI 整理计划</span><span class="hint" id="planSub"></span><span style="flex:1"></span><button class="modal-x" onclick="planClose()">✕</button></div>
+    <div class="plan-mbody">
+      <div class="plan-newstrip" id="planNewCats"></div>
+      <datalist id="planCatList"></datalist>
+      <table class="plan-tb">
+        <thead><tr><th style="width:30px"></th><th>文件</th><th>分类建议</th><th>归档名</th><th>置信</th><th style="width:52px"></th></tr></thead>
+        <tbody id="planRows"></tbody>
+      </table>
+    </div>
+    <div class="plan-mfoot">
+      <span class="hint">低置信与失败行默认不勾选；逐行「改」可调整分类 / 归档名 / 路径</span>
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" onclick="planClose()">取消</button>
+      <button class="btn p" id="planApplyBtn" onclick="planApply()">应用计划</button>
+    </div>
   </div>
 </div>
 
@@ -738,9 +809,149 @@ $('#drawerMask').addEventListener('click',closeDrawer);
 function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<div class="sk-card"><div class="sk-bg sk-img"></div><div class="sk-bg sk-line w80"></div><div class="sk-bg sk-line w60"></div><div class="sk-bg sk-line w40"></div></div>`}s+='</div>';return s}
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
 async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
-function renderPending(files){cacheFiles(files);const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f)).join('')+'</div>'}
+function renderPending(files){cacheFiles(files);window._pendingIds=files.map(f=>f.id);const hint=$('#aiBatchHint');if(hint)hint.textContent=files.length?`(${files.length})`:'';const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f)).join('')+'</div>'}
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');closeDrawer();loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const all=j.files;if(!all.length){toast('无待整理');return}const archivable=all.filter(f=>!f.is_duplicate);const skipped=all.length-archivable.length;const ids=archivable.map(f=>f.id);const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();let msg=`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`;if(skipped>0)msg+=`（跳过 ${skipped} 个重复文件）`;toast(msg);loadPending();if(typeof search==='function')search()}
+
+// ===== 批量 AI 整理：SSE 进度 → 计划预览 → 确认执行 =====
+let _aiBatchAbort=null,_planItems=[];
+async function ensureLLMConfigured(){
+  const j=await(await fetch('/api/config')).json();
+  if(j.llm&&j.llm.configured)return true;
+  if(await uiConfirm({title:'LLM 未配置', body:'AI 整理需要先在「设置」中填写模型地址（Base URL）与模型名。', okText:'去设置', okClass:'btn p'}))switchTab('settings');
+  return false;
+}
+async function aiBatchStart(){
+  const ids=window._pendingIds||[];
+  if(!ids.length){toast('无待整理文件');return}
+  if(!await ensureLLMConfigured())return;
+  $('#batchMask').classList.add('show');
+  _aiBatchAbort=new AbortController();
+  const results=[];let skipped=0,cancelled=false;
+  const bar=$('#batchBar'),pct=$('#batchPct'),meta=$('#batchMeta'),cur=$('#batchCur');
+  const setP=(d,t)=>{bar.style.width=(t?Math.round(d/t*100):0)+'%';pct.textContent=`${d} / ${t} 个`};
+  try{
+    const r=await fetch('/api/llm-batch-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids}),signal:_aiBatchAbort.signal});
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'请求失败')}
+    const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
+    while(true){
+      const {done,value}=await reader.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});let i;
+      while((i=buf.indexOf('\n\n'))>=0){
+        const chunk=buf.slice(0,i);buf=buf.slice(i+2);
+        const line=chunk.split('\n').find(l=>l.startsWith('data: '));if(!line)continue;
+        const ev=JSON.parse(line.slice(6));
+        if(ev.type==='skip'){skipped++;meta.textContent=`已跳过（规则命中）${skipped} 个文件`}
+        else if(ev.type==='progress'){
+          if(ev.error){results.push({id:ev.id,filename:ev.filename,error:ev.error,checked:false})}
+          else{results.push({id:ev.id,filename:ev.filename,category:ev.category,alias:ev.alias,reason:ev.reason,confidence:ev.confidence,is_new:ev.is_new,thumb:ev.thumb,checked:ev.confidence==='high'})}
+          setP(ev.done,ev.total);
+          cur.textContent=ev.filename?`正在处理：${ev.filename}`:'';
+        }
+        else if(ev.type==='done')setP(ev.total,ev.total);
+        else if(ev.type==='error')throw new Error(ev.error);
+      }
+    }
+  }catch(e){
+    if(e.name==='AbortError')cancelled=true;
+    else{$('#batchMask').classList.remove('show');toast('AI 整理失败：'+e.message);return}
+  }
+  $('#batchMask').classList.remove('show');
+  if(cancelled&&!results.length){toast('已取消');return}
+  if(!results.length){toast(`规则已全部命中，无需 AI 参与（跳过 ${skipped} 个）`);loadPending();return}
+  openPlanReview(results,skipped,cancelled);
+}
+function aiBatchCancel(){if(_aiBatchAbort)_aiBatchAbort.abort()}
+function planConf(c){const lv=c==='high'?3:c==='low'?1:2;return `<span class="conf-dots">${[1,2,3].map(i=>`<i class="${i<=lv?'on':''}"></i>`).join('')}</span>`}
+function planNewCatsAgg(){const m={};_planItems.forEach(it=>{if(it.is_new&&it.category&&!it.error)m[it.category]=(m[it.category]||0)+1});return m}
+function openPlanReview(results,skipped,cancelled){
+  _planItems=results.map(r=>({...r,_editing:false}));
+  $('#planSub').textContent=`${_planItems.length} 个文件经 AI 分析`+(skipped?` · 规则已命中 ${skipped} 个`:'')+(cancelled?' · 已暂停（保留以上结果）':'');
+  fillPlanCatList();renderPlan();
+  $('#planMask').classList.add('show');
+}
+function planClose(){$('#planMask').classList.remove('show')}
+async function fillPlanCatList(){
+  try{
+    const r=await fetch('/api/categories');const j=await r.json();
+    const opts=[...j.ip.map(x=>'IP·'+x),...Object.keys(j.func||{}),...(j.custom||[])].map(c=>`<option value="${esc(c)}">`).join('');
+    const dl=$('#planCatList');if(dl)dl.innerHTML=opts;
+    const dl2=$('#dr-catlist');if(dl2)dl2.innerHTML=opts;
+  }catch(e){}
+}
+function renderPlan(){
+  const agg=planNewCatsAgg();
+  $('#planNewCats').innerHTML=Object.keys(agg).length
+    ?`<b>AI 建议新建 ${Object.keys(agg).length} 个分类：</b>`+Object.entries(agg).map(([c,n])=>`<span class="pill">${esc(c)} <small>×${n}</small></span>`).join('')+`<label><input type="checkbox" id="planNewOk" checked> 创建并应用</label>`
+    :'';
+  $('#planRows').innerHTML=_planItems.map((it,idx)=>{
+    let row;
+    if(it.error){
+      row=`<span class="pill r">失败</span><div class="hint" style="margin-top:4px">${esc(it.error)}</div>
+        <div style="display:flex;gap:5px;margin-top:6px"><input type="text" id="planRetry-${idx}" placeholder="用一句话描述它…" style="font-size:11px;padding:4px 8px;min-width:0"><button class="btn ghost sm" onclick="planRetry(${idx})">重判</button></div>`;
+    }else{
+      row=`<span class="pill ${it.is_new?'y':''}" style="${it.is_new?'':'background:var(--ok-soft);color:var(--ok)'}">${esc(it.category)}</span>${it.reason?`<div class="hint" style="margin-top:3px">${esc(it.reason)}</div>`:''}`;
+    }
+    return `<tr class="${it.error?'fail':(it.confidence!=='high'?'low':'')}" id="planrow-${idx}">
+      <td><input type="checkbox" ${it.checked?'checked':''} ${it.error?'disabled':''} onchange="_planItems[${idx}].checked=this.checked;planCount()"></td>
+      <td><div class="plan-file"><img src="/thumbs/${it.thumb||''}" onerror="this.style.visibility='hidden'"><span class="fn" title="${esc(it.filename||'')}">${esc(it.filename||'')}</span></div></td>
+      <td>${row}</td>
+      <td>${esc(it.error?'—':(it.alias||'—'))}</td>
+      <td>${it.error?'<span class="hint">—</span>':planConf(it.confidence)}</td>
+      <td>${it.error?'':`<button class="btn ghost sm" onclick="planEditRow(${idx})">改</button>`}</td>
+    </tr>`+(it._editing?planEditorRow(idx):'');
+  }).join('');
+  planCount();
+}
+function planEditorRow(idx){
+  const it=_planItems[idx];
+  return `<tr class="plan-editrow"><td colspan="6"><div class="plan-edit">
+    <input list="planCatList" id="pe-cat-${idx}" value="${esc(it.category||'')}" placeholder="分类（可输入或选择）">
+    <input id="pe-alias-${idx}" value="${esc(it.alias||'')}" placeholder="归档名">
+    <input id="pe-target-${idx}" value="${esc(it.target_dir||'')}" placeholder="归档路径（留空用分类默认）">
+    <div style="display:flex;gap:6px"><button class="btn ok sm" onclick="planEditSave(${idx})">保存</button><button class="btn ghost sm" onclick="planEditCancel(${idx})">取消</button></div>
+  </div></td></tr>`;
+}
+function planEditRow(idx){_planItems[idx]._editing=!_planItems[idx]._editing;renderPlan()}
+function planEditCancel(idx){_planItems[idx]._editing=false;renderPlan()}
+function planEditSave(idx){
+  const it=_planItems[idx];
+  const c=$(`#pe-cat-${idx}`).value.trim();
+  if(!c){toast('分类不能为空');return}
+  it.category=c;
+  it.alias=$(`#pe-alias-${idx}`).value.trim();
+  it.target_dir=$(`#pe-target-${idx}`).value.trim();
+  it.checked=true;it._editing=false;it.confidence='high';
+  renderPlan();
+}
+async function planRetry(idx){
+  const it=_planItems[idx];
+  const inp=$(`#planRetry-${idx}`);const hint=inp?inp.value.trim():'';
+  if(!hint){toast('先输入一句话描述它');return}
+  try{
+    const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:it.id,hint})});
+    const j=await r.json();
+    if(!r.ok){toast(j.error||'重判失败');return}
+    Object.assign(_planItems[idx],{category:j.category,alias:j.alias,reason:j.reason,confidence:j.confidence||'medium',is_new:j.is_new,checked:true,error:null});
+    renderPlan();
+  }catch(e){toast('重判失败：'+e.message)}
+}
+function planCount(){
+  const n=_planItems.filter(i=>i.checked&&!i.error).length;
+  $('#planApplyBtn').textContent=`应用计划（${n} 个文件）`;
+}
+async function planApply(){
+  const items=_planItems.filter(i=>i.checked&&!i.error).map(i=>({id:i.id,category:i.category,alias:i.alias||'',target_dir:i.target_dir||''}));
+  if(!items.length){toast('未勾选任何文件');return}
+  const newOk=$('#planNewOk');
+  const newCats=(newOk&&newOk.checked)?Object.keys(planNewCatsAgg()):[];
+  const r=await fetch('/api/apply-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items,new_categories:newCats})});
+  const j=await r.json();
+  if(!r.ok){toast(j.error||'应用失败');return}
+  planClose();
+  toast(`已归档 ${j.applied.length} 个文件`+(j.failed.length?`，失败 ${j.failed.length}`:''));
+  loadPending();if(typeof search==='function')search();
+}
 async function llmClassify(id,btn,hint){
   hint=(hint==null?'':String(hint)).trim();
   const currentCat=btn?(btn.getAttribute('data-cur')||''):'';
@@ -1026,7 +1237,7 @@ function inline(s){
 async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><div class="n">${j.total}</div><div class="l">全部</div></div><div class="stat"><div class="n">${j.pending}</div><div class="l">待整理</div></div><div class="stat"><div class="n">${j.applied}</div><div class="l">已归档</div></div>`;const bd=$('#navbd');if(bd)bd.style.display=j.pending>0?'block':'none'}
 
 // init
-(async function(){renderNav();applyTheme();await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
+(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
 </script>
 </body>
 </html>
