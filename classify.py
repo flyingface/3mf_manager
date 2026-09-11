@@ -77,11 +77,16 @@ def custom_cat_keyword(cat):
     return kw if len(kw) >= 2 else ""
 
 
-def categorize(folder, filename, title, sib_text="", custom_cats=None):
+def categorize(folder, filename, title, sib_text="", custom_cats=None, learned_rules=None):
     s = (folder + " " + filename + " " + title + " " + sib_text)
     sl = s.lower()
     ftl = (filename + " " + title).lower()
-    # 用户确认过的自定义分类优先命中（用户明确教过系统的分类，应最优先）
+    # 用户教过的显式关键词规则（最高优先：这是用户对错误分类的直接纠正）
+    for rule in (learned_rules or []):
+        kw = (rule.get("keyword") or "").strip()
+        if len(kw) >= 2 and kw.lower() in sl and rule.get("category"):
+            return subcat.refine(rule["category"], folder, filename, title)
+    # 用户确认过的自定义分类其次（按分类名最具体末段匹配）
     for cat in (custom_cats or []):
         kw = custom_cat_keyword(cat)
         if kw and kw in sl:

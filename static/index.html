@@ -194,6 +194,12 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .ai-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 .ai-chips .chip{border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:20px;padding:3px 10px;font-size:11px;cursor:pointer;transition:.15s}
 .ai-chips .chip:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+/* ---- 学习规则 ---- */
+.rule-item{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap}
+.rule-item:last-child{border-bottom:none}
+.kw-pill{background:var(--primary-soft);color:var(--primary-d);border-radius:8px;padding:3px 9px;font-weight:600;font-size:12px}
+.danger-link{color:var(--err);cursor:pointer;font-size:11px}
+.danger-link:hover{text-decoration:underline}
 .th-cam svg{width:14px;height:14px}
 .viewer-head .vd svg{width:15px;height:15px}
 /* ---- 查看器（深色画布 + 缩放/平移） ---- */
@@ -479,6 +485,11 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
           <span class="hint">清空该目录下全部模型文件、子文件夹与索引（不可恢复）</span>
         </div>
       </div>
+      <div class="panel">
+        <div class="panel-h">已学习的分类规则</div>
+        <div class="hint" style="margin-bottom:10px">手动纠正后「记住」的规则：文件名/标题包含关键词时自动归类，命中次数透明，可随时删除。</div>
+        <div id="rulesList"><div class="hint">加载中…</div></div>
+      </div>
       <div class="panel"><button class="btn p" onclick="saveConfig()">保存配置</button><span id="cfgStatus" class="hint" style="margin-left:10px"></span><span id="aiLatency" class="hint" style="margin-left:10px"></span></div>
     </section>
   </div>
@@ -554,7 +565,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 <script>
 const $=s=>document.querySelector(s);
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2200)}
+function toast(m,opts){const t=$('#toast');t.innerHTML='';const s=document.createElement('span');s.textContent=m;t.appendChild(s);if(opts&&opts.btnText){const b=document.createElement('button');b.className='btn p sm';b.style.marginLeft='12px';b.textContent=opts.btnText;b.onclick=()=>{t.classList.remove('show');opts.onBtn&&opts.onBtn()};t.appendChild(b)}t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),opts&&opts.btnText?6000:2200)}
 
 // ===== 内联 SVG 线性图标（统一视觉，替代 emoji） =====
 const _svg=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -629,7 +640,7 @@ function switchTab(name){
   if(name==='dash')loadDash();
   if(name==='pending')loadPending();
   if(name==='library')search();
-  if(name==='settings')loadConfig();
+  if(name==='settings'){loadConfig();rulesLoad()}
 }
 
 // ===== 上传 =====
@@ -834,7 +845,11 @@ async function drSave(field, id){
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   const j=await r.json();
   if(!r.ok){toast(j.error||'保存失败');inp.value=cur;return}
-  toast(field==='alias'?'归档名已更新':field==='cat'?'分类已更新，归档路径已重算':'归档路径已更新');
+  if(field==='cat'){
+    toast('分类已更新，归档路径已重算',{btnText:'✦ 以后同类文件都这样分',onBtn:()=>teachRule(val)});
+  }else{
+    toast(field==='alias'?'归档名已更新':'归档路径已更新');
+  }
   inp.setAttribute('data-cur',val);
   if(field==='cat'&&j.target_dir!=null){const t=$('#dr-target');if(t){t.value=j.target_dir||'';t.setAttribute('data-cur',j.target_dir||'')}}
   await loadPending();if(typeof search==='function')await search();
@@ -1342,6 +1357,50 @@ function openModal(title, bodyHtml){$('#modalTitle').innerHTML=title;$('#modalBo
 function closeModal(){$('#modalMask').style.display='none';if(_modalCloseCb){const cb=_modalCloseCb;_modalCloseCb=null;cb()}}
 function modalOutside(e){if(e.target.id==='modalMask')closeModal()}
 document.addEventListener('keydown',e=>{if($('#modalMask').style.display==='flex'&&e.key==='Escape')closeModal()})
+
+// ===== 教学闭环：手动纠正沉淀为规则 =====
+function teachRule(category){
+  window._teachCat=category;
+  const parts=(category||'').split('/');
+  const tail=(parts[parts.length-1]||category).trim();
+  openModal('✦ 记住这条分类规则？',
+    `<div style="font-size:12px;line-height:1.9">以后标题或文件名包含
+       <div style="display:flex;align-items:center;gap:8px;margin:10px 0">
+         <input type="text" id="ruleKwIn" value="${esc(tail)}" style="width:160px">
+         <span class="hint">→</span>
+         <span class="pill cat">${esc(category)}</span>
+       </div>
+       的文件，自动归入该分类。规则可在设置页查看或删除。</div>
+     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">暂不</button><button class="btn p" onclick="teachRuleSave()">记住规则</button></div>`);
+  setTimeout(()=>$('#ruleKwIn').focus(),60);
+}
+async function teachRuleSave(){
+  const kw=($('#ruleKwIn').value||'').trim();
+  const category=window._teachCat||'';
+  if(kw.length<2){toast('关键词至少 2 个字符');return}
+  const r=await fetch('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:kw,category})});
+  closeModal();
+  if(r.ok)toast(`已记住：包含「${kw}」的文件将自动归入「${category}」`);
+  else toast('保存失败');
+}
+// ===== 设置页 · 已学习的规则 =====
+async function rulesLoad(){
+  const el=$('#rulesList');if(!el)return;
+  try{
+    const j=await(await fetch('/api/rules')).json();
+    const rules=j.rules||[];
+    window._learnedRules=rules;
+    el.innerHTML=rules.length?rules.map((r,i)=>`<div class="rule-item"><span class="kw-pill">${esc(r.keyword)}</span><span class="hint">→</span><span class="pill cat">${esc(r.category)}</span><span class="hint" style="flex:1;margin-left:8px">已自动命中 ${r.hits||0} 次</span><span class="danger-link" onclick="ruleDel(${i})">删除</span></div>`).join('')
+      :'<div class="hint">暂无规则。在待整理页手动改分类后，点 toast 里的「✦ 以后同类文件都这样分」即可创建。</div>';
+  }catch(e){el.innerHTML='<div class="hint">加载失败</div>'}
+}
+async function ruleDel(i){
+  const r=(window._learnedRules||[])[i];if(!r)return;
+  if(!await uiConfirm({title:'删除规则', body:`删除后，包含「<b>${esc(r.keyword)}</b>」的文件将不再自动归入「<b>${esc(r.category)}</b>」。`, okText:'删除'}))return;
+  const resp=await fetch('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete:true,keyword:r.keyword,category:r.category})});
+  const j=await resp.json();
+  if(j.ok){window._learnedRules=j.rules||[];rulesLoad()}
+}
 
 // ===== 初始化模型根目录（二次确认 + 路径比对）=====
 function resetLibrary(){

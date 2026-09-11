@@ -82,6 +82,28 @@ def load_custom_categories():
         return []
     return [x for x in (row["value"].split(",") if row and row["value"] else []) if x]
 
+def load_learned_rules():
+    """读取用户教过的分类规则（settings.learned_rules，JSON 数组）。"""
+    try:
+        conn = db_conn()
+        row = conn.execute("SELECT value FROM settings WHERE key='learned_rules'").fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return []
+    if not row or not row["value"]:
+        return []
+    try:
+        rules = json.loads(row["value"])
+        return rules if isinstance(rules, list) else []
+    except ValueError:
+        return []
+
+def save_learned_rules(rules):
+    conn = db_conn()
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('learned_rules',?)",
+                 (json.dumps(rules, ensure_ascii=False),))
+    conn.commit(); conn.close()
+
 def validate_rel_target(raw):
     """校验用户提供的相对归档子路径：合法返回归一化路径（/ 分隔），非法返回 None。
 
@@ -773,7 +795,16 @@ class Handler(BaseHTTPRequestHandler):
         rel = rel_to_root(path)
         folder = os.path.dirname(rel) if rel else ""
         title = meta["title"]
-        category = categorize(folder, filename, title, custom_cats=load_custom_categories())
+        rules = load_learned_rules()
+        category = categorize(folder, filename, title, custom_cats=load_custom_categories(), learned_rules=rules)
+        # 学习规则命中计数（透明展示「已自动命中 N 次」）
+        s_low = (folder + " " + filename + " " + title).lower()
+        for r in rules:
+            kw = (r.get("keyword") or "").strip().lower()
+            if len(kw) >= 2 and kw in s_low and r.get("category") == category:
+                r["hits"] = int(r.get("hits") or 0) + 1
+                save_learned_rules(rules)
+                break
         alias = make_alias(filename, title)
         target = target_relpath(category, filename, title, folder)
         h = sha256_hex or sha256_file(path)
@@ -1261,6 +1292,31 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "applied": ok_list, "failed": failed})
 
+    def _api_rules(self, data):
+        """学习规则管理：空载荷=列表；{keyword,category}=新增/更新；{delete:true,keyword,category}=删除。"""
+        data = data or {}
+        if data.get("delete"):
+            kw = (data.get("keyword") or "").strip()
+            cat = (data.get("category") or "").strip()
+            rules = [r for r in load_learned_rules()
+                     if not (r.get("keyword") == kw and r.get("category") == cat)]
+            save_learned_rules(rules)
+            self._send(200, {"ok": True, "rules": rules}); return
+        kw = (data.get("keyword") or "").strip()
+        cat = (data.get("category") or "").strip()
+        if not kw and not cat:
+            self._send(200, {"ok": True, "rules": load_learned_rules()}); return
+        if len(kw) < 2 or not cat:
+            self._send(400, {"error": "关键词至少 2 个字符，且需要分类名"}); return
+        rules = load_learned_rules()
+        entry = {"keyword": kw, "category": cat, "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                 "hits": int(next((r.get("hits", 0) for r in rules
+                                   if r.get("keyword") == kw and r.get("category") == cat), 0))}
+        rules = [r for r in rules if not (r.get("keyword") == kw and r.get("category") == cat)]
+        rules.append(entry)
+        save_learned_rules(rules)
+        self._send(200, {"ok": True, "rule": entry, "rules": rules})
+
     def _api_dirs(self, _=None):
         """返回模型根目录下所有已存在的目录（相对路径，按层级排序），供归档路径选择器使用。
 
@@ -1544,6 +1600,7 @@ GET_ROUTES = {
     "/api/config": Handler._api_get_config,
     "/api/attachments": Handler._api_attachments,
     "/api/dirs": Handler._api_dirs,
+    "/api/rules": lambda h, _: h._api_rules({}),
 }
 
 POST_ROUTES = {
@@ -1570,6 +1627,7 @@ POST_ROUTES = {
     "/api/open-in-bambu": Handler._api_open_in_bambu,
     "/api/set-alias": Handler._api_set_alias,
     "/api/set-target": Handler._api_set_target,
+    "/api/rules": Handler._api_rules,
 }
 
 # 以 multipart/form-data 收请求体的端点（body 是二进制，不能走 JSON 预读）
