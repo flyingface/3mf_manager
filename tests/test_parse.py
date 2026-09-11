@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """parse_3mf 解析器单元测试。"""
-import os
 import parse_3mf
 
 

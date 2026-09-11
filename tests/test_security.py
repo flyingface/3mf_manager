@@ -3,7 +3,7 @@
 import os, http.client
 
 import server
-from tests.test_api import fetch, _make_3mf_bytes, client  # 复用隔离环境 fixture 与工具
+from tests.test_api import fetch, _make_3mf_bytes  # client fixture 在 conftest.py
 
 
 def raw_get(base, path):
@@ -72,6 +72,17 @@ class TestResetLibraryGuard:
         f = _upload(client, "keep.3mf", "保留")
         files = fetch(client, "/api/files")["files"]
         assert any(x["id"] == f["id"] for x in files)
+
+
+class TestSetTargetGuard:
+    def test_traversal_and_absolute_rejected(self, client):
+        f = _upload(client, "tgt.3mf", "路径测试")
+        for bad in ("../escape", "a/../../escape", "/etc", "C:\\\\windows"):
+            r = fetch(client, "/api/set-target", data={"id": f["id"], "target_dir": bad})
+            assert "error" in r, f"{bad} 应被拒绝"
+        # 合法相对子路径可用
+        ok = fetch(client, "/api/set-target", data={"id": f["id"], "target_dir": "01_IP授权/高达Gundam"})
+        assert ok["ok"] and ok["target_dir"] == "01_IP授权/高达Gundam"
 
 
 class TestDuplicateGuard:

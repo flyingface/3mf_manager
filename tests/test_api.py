@@ -1,32 +1,9 @@
 # -*- coding: utf-8 -*-
 """API 端到端测试：上传/解析/分类/归档/查询/tag/附件/hash重复。"""
-import os, json, threading, time
-import urllib.request, urllib.parse
-import pytest
-
-import server
+import os, json, urllib.request, urllib.parse
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    """启动隔离环境的测试服务器，返回可 fetch 的 base_url。"""
-    root = tmp_path / "libroot"
-    root.mkdir()
-    # 隔离运行时路径
-    monkeypatch.setattr(server, "LIBRARY_ROOT", str(root))
-    monkeypatch.setattr(server, "INBOX", str(root / "00_待整理"))
-    monkeypatch.setattr(server, "DB_PATH", str(tmp_path / "test.db"))
-    monkeypatch.setattr(server, "THUMB_DIR", str(tmp_path / "thumbs"))
-    monkeypatch.setattr(server, "ATTACH_DIR", str(tmp_path / "attach"))
-    server.init_db()
-    # 启动服务
-    srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    base = f"http://127.0.0.1:{srv.server_address[1]}"
-    yield base
-    srv.shutdown()
-    srv.server_close()
+# client fixture 在 conftest.py 定义（隔离环境测试服务器）
 
 
 def fetch(base, path, data=None, files=None):

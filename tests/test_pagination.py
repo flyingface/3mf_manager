@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """分页与聚合测试：limit/offset/total、跨页重复标记、附件内嵌（消 N+1）。"""
-from tests.test_api import fetch, _make_3mf_bytes, client  # 复用隔离环境 fixture 与工具
+from tests.test_api import fetch, _make_3mf_bytes  # client fixture 在 conftest.py
 
 
 def _upload(client, name, title, design_id="CNpg1"):

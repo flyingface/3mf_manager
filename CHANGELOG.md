@@ -2,7 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [2.3.0] - 2026-09-11
+
+### 工程化
+- **版本号单一来源**：新增 `version.py`，`pyproject.toml` 通过 setuptools dynamic attr 读取，服务启动横幅同步显示，消除 pyproject 与 CHANGELOG 版本漂移
+- **CI**：新增 GitHub Actions（`.github/workflows/ci.yml`），Python 3.10/3.13 双版本矩阵，执行 `ruff check` + `pytest`
+- **ruff 静态检查**：加入 dev 依赖并全库清零（清理未用导入/未用变量；单行分号等既有风格加入忽略清单，不做整库改写）
+- **归档路径校验加固**：`set-target` 按段校验，拒绝 `..`/`.`/盘符冒号路径（修复 Windows 盘符绝对路径可逃逸库根），路径分隔符归一化为 `/`
+- **测试基建**：`client` fixture 上移 `conftest.py`；新增 `set-target` 校验回归测试
 
 ### 性能与体验
 - **`/api/files` 服务端分页**：新增 `limit`/`offset` 参数与 `total` 字段；重复（SHA256）标记改为在**全量过滤集**上计算后再切页，同组重复跨页也标记正确；模型库页改为服务端分页，大库不再全量拉取

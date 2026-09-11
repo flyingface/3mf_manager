@@ -102,12 +102,16 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 
 ```
 3mf_manager/
-├── server.py           # 后端 HTTP 服务（内置 http.server + sqlite3）
+├── server.py           # 组合根：HTTP 服务 + 路由表 + LLM 编排（内置 http.server + sqlite3）
+├── classify.py         # 分类/别名/目录规划纯逻辑层
+├── rules.json          # 分类规则数据（IP 关键词/目录映射/噪音词，可编辑扩充）
+├── db.py               # SQLite 存储层（schema 版本化迁移 + 路径/哈希工具）
 ├── llm_client.py       # OpenAI 兼容 LLM 客户端 + 会话管理
 ├── parse_3mf.py        # 3MF 解析器（ZIP/XML，字节级几何计数）
-├── subcat.py           # 分类规则库
+├── subcat.py           # 子分类语义（Dummy13/Minecraft/功能父类子类）
 ├── mc_subcat.py        # Minecraft 子分类
 ├── runner.py           # CLI 入口
+├── version.py          # 版本号单一来源
 ├── static/index.html   # 前端单页应用
 ├── tests/              # pytest 测试套件
 ├── service.sh          # 一键启停脚本

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """pytest fixtures：为测试隔离临时工作目录与配置。"""
-import os, sys, json, tempfile, shutil
+import os, sys, threading
 import pytest
 
 # 确保项目根在 sys.path（flat 布局）
@@ -8,9 +8,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import parse_3mf as parse_mod
-import subcat as subcat_mod
-import mc_subcat as mc_mod
 
 
 @pytest.fixture()
@@ -21,6 +18,29 @@ def tmp_workspace(tmp_path):
     inbox = root / "00_待整理"
     inbox.mkdir()
     return {"root": str(root), "inbox": str(inbox)}
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    """启动隔离环境的测试服务器，返回可 fetch 的 base_url。"""
+    import server
+    root = tmp_path / "libroot"
+    root.mkdir()
+    # 隔离运行时路径
+    monkeypatch.setattr(server, "LIBRARY_ROOT", str(root))
+    monkeypatch.setattr(server, "INBOX", str(root / "00_待整理"))
+    monkeypatch.setattr(server, "DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setattr(server, "THUMB_DIR", str(tmp_path / "thumbs"))
+    monkeypatch.setattr(server, "ATTACH_DIR", str(tmp_path / "attach"))
+    server.init_db()
+    # 启动服务
+    srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    yield base
+    srv.shutdown()
+    srv.server_close()
 
 
 def _write_3mf(path, title="", designer="", design_id="", verts=0, tris=0, has_slice=False):

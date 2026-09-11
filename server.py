@@ -974,10 +974,12 @@ class Handler(BaseHTTPRequestHandler):
             # 空路径：回退到分类默认路径
             target = target_relpath(row["category"], row["filename"], row["title"], row["folder"]) if row["category"] else ""
         else:
-            # 安全校验：不允许父级穿越(..)
-            if ".." in raw.split("/") or ".." in raw.split("\\"):
+            # 安全校验：按段检查——禁父级穿越(..)、当前目录(.)、盘符/冒号（Windows 盘符绝对路径会逃逸库根）
+            parts = [p for p in re.split(r"[\\/]+", raw) if p]
+            if (not parts or any(p in ("..", ".") for p in parts)
+                    or any(":" in p for p in parts)):
                 conn.close(); self._send(400, {"error": "归档路径不合法（仅支持相对子目录路径）"}); return
-            target = raw
+            target = "/".join(parts)
         conn.execute("UPDATE files SET target_dir=? WHERE id=?", (target, fid))
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "target_dir": target})
@@ -1237,7 +1239,6 @@ class Handler(BaseHTTPRequestHandler):
         summary = "\n".join(
             f"{r['id']}. {r['filename']} | {r['title']} | 分类:{r['category']} | tags:{r['tags']} | 状态:{r['status']}"
             for r in rows)
-        history = llm_client.session_get(sid)
         llm_client.session_add(sid, "user", msg)
         try:
             reply = llm_chat_reply(llm_client.session_get(sid), summary)
@@ -1288,6 +1289,11 @@ POST_ROUTES = {
 MULTIPART_ROUTES = {"/api/upload", "/api/thumbnail", "/api/attach"}
 
 
+try:
+    from version import __version__
+except ImportError:  # 直接以脚本运行且模块缺失时的兜底
+    __version__ = "dev"
+
 # ---------------------------------------------------------------
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
@@ -1295,7 +1301,7 @@ def main():
     init_db()
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print("=" * 60)
-    print("  3MF Manager v2 — 3D 打印文件管理器")
+    print(f"  3MF Manager v{__version__} — 3D 打印文件管理器")
     print("  " + "-" * 54)
     print(f"  页面   : http://127.0.0.1:{port}")
     print(f"  收藏目录: {LIBRARY_ROOT}")

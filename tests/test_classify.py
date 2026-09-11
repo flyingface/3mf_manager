@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """分类器测试：IP 优先、功能分类、子分类、新增分类兜底。"""
 import server
-import subcat
 
 
 def c(folder, filename, title=""):
