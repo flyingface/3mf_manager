@@ -167,9 +167,10 @@ def file_full_path(row):
 # ---------------------------------------------------------------
 # LLM 增强功能
 # ---------------------------------------------------------------
-def llm_classify(info, existing_categories, rule_category, hint=""):
+def llm_classify(info, existing_categories, rule_category, hint="", history=None):
     """用 LLM 判断：现有分类是否合适；不合适则给出新分类建议。
     hint: 用户补充分类提示（可选）。非空时模型优先参考该提示分类；留空走默认逻辑。
+    history: 多轮纠正记录 [{category, reason, feedback}]，非空时作为上下文注入（对话式纠正）。
     返回 {"category":str,"is_new":bool,"reason":str,"alias":str,"confidence":"high/medium/low"}
     """
     hint = (hint or "").strip()
@@ -197,6 +198,17 @@ def llm_classify(info, existing_categories, rule_category, hint=""):
         user_msg += (
             f"用户的分类提示：{hint}\n"
             "请优先结合上述用户提示进行判断；若提示已明确指定目标分类，应优先采纳该分类。\n\n"
+        )
+    rounds = [h for h in (history or []) if isinstance(h, dict)][-5:]  # 最多保留最近 5 轮
+    if rounds:
+        lines = []
+        for i, h in enumerate(rounds, 1):
+            lines.append(f"第 {i} 轮结论：分类「{h.get('category', '')}」，理由：{h.get('reason', '')}")
+            if h.get("feedback"):
+                lines.append(f"  你的纠正：{h['feedback']}")
+        user_msg += (
+            "这是多轮纠正对话，历史如下：\n" + "\n".join(lines) +
+            "\n请结合全部纠正信息重新判断，不要重复已被否定的结论。\n\n"
         )
     user_msg += "请判断该模型的最佳分类。"
     raw = llm_client.chat([
@@ -1315,6 +1327,13 @@ class Handler(BaseHTTPRequestHandler):
         if not llm_client.llm_configured():
             self._send(400, {"error": "LLM 未配置"})
             return
+        # 多轮纠正历史（对话式纠正）：截断防提示词膨胀
+        history = []
+        for h in (data.get("history") or [])[:5]:
+            if isinstance(h, dict):
+                history.append({"category": str(h.get("category", ""))[:50],
+                                "reason": str(h.get("reason", ""))[:200],
+                                "feedback": str(h.get("feedback", ""))[:500]})
         conn = db_conn()
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         conn.close()
@@ -1326,7 +1345,7 @@ class Handler(BaseHTTPRequestHandler):
         existing = [r["category"] for r in conn.execute("SELECT DISTINCT category FROM files WHERE category!=''")]
         conn.close()
         try:
-            res = llm_classify(info, existing, info["category"], hint)
+            res = llm_classify(info, existing, info["category"], hint, history=history)
             res["id"] = fid
             self._send(200, res)
         except Exception as e:

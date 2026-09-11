@@ -190,6 +190,10 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .attach-list .x{cursor:pointer;color:var(--tert)}.attach-list .x:hover{color:var(--err)}
 .llm-box{font-size:12px}
 .llm-box:empty{display:none}
+.round-badge{font-size:10px;color:var(--tert);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap}
+.ai-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.ai-chips .chip{border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:20px;padding:3px 10px;font-size:11px;cursor:pointer;transition:.15s}
+.ai-chips .chip:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
 .th-cam svg{width:14px;height:14px}
 .viewer-head .vd svg{width:15px;height:15px}
 /* ---- 查看器（深色画布 + 缩放/平移） ---- */
@@ -952,26 +956,67 @@ async function planApply(){
   toast(`已归档 ${j.applied.length} 个文件`+(j.failed.length?`，失败 ${j.failed.length}`:''));
   loadPending();if(typeof search==='function')search();
 }
-async function llmClassify(id,btn,hint){
+// AI 分类建议盒：支持多轮对话式纠正（上下文逐轮累积）
+const _clsCtx={}; // id -> {btn, history}
+async function llmClassify(id,btn,hint,history){
   hint=(hint==null?'':String(hint)).trim();
+  history=Array.isArray(history)?history:[];
   const currentCat=btn?(btn.getAttribute('data-cur')||''):'';
   const box=document.getElementById('llm-'+id);
   if(!box)return;
   box.innerHTML='<div class="hint" style="padding:8px 0">正在调用模型分类...</div>';
   try{
-    const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,hint})});
+    const r=await fetch('/api/llm-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,hint,history})});
     const j=await r.json();
-    if(!r.ok){const msg=j.error||'AI 分类失败';box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;toast(msg);return}
-    if(j.category===currentCat){
+    if(!r.ok){
+      const msg=j.error||'AI 分类失败';
+      box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="llmClassify(${id},null,'${esc(hint)}',${esc(JSON.stringify(history))})">重试</button></div>`;
+      toast(msg);return;
+    }
+    const round=history.length+1;
+    if(j.category===currentCat&&!history.length){
       box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span><br><div class="hint" style="margin-top:4px">与当前分类一致</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="cancelClassify(this)">关闭</button></div></div>`;
       return;
     }
-    box.innerHTML=`<div style="font-size:12px;padding:8px 0"><span class="pill cat">${esc(j.category)}</span> ${j.is_new?'<span class="pill y">新分类建议</span>':'现有分类'} · 归档名：<b>${esc(j.alias)||'—'}</b> · ${esc(j.reason)}<br><div style="margin-top:6px;display:flex;gap:6px"><button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new},'${esc(j.alias||'')}')">${j.is_new?'创建新分类':'采用'}</button><button class="btn ghost sm" onclick="cancelClassify(this)">取消</button></div></div>`;
+    _clsCtx[id]={btn,history:[...history,{category:j.category,reason:j.reason||'',feedback:hint}]};
+    const adopt=`<button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new},'${esc(j.alias||'')}')">${j.is_new?'创建新分类':'采用'}</button>`;
+    const confTxt=j.confidence==='high'?'置信 ●●●':j.confidence==='low'?'置信 ●○○':'置信 ●●○';
+    box.innerHTML=`<div style="font-size:12px;padding:8px 0 8px 10px;border-left:3px solid;border-image:var(--grad) 1">
+      <div><span class="pill ${j.is_new?'y':''}" style="${j.is_new?'':'background:var(--ok-soft);color:var(--ok)'}">${esc(j.category)}</span>
+      ${j.is_new?'<span class="hint">新分类</span>':''} <span class="round-badge">第 ${round} 轮</span></div>
+      <div style="margin-top:5px">归档名：<b>${esc(j.alias)||'—'}</b> · <span class="hint">${confTxt}</span></div>
+      ${j.reason?`<div class="hint" style="margin-top:3px">${esc(j.reason)}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
+        ${adopt}
+        <button class="btn ghost sm" onclick="clsRefine(${id})">不对？告诉它为什么</button>
+        ${round>=3?'<span class="hint">已纠正 3 轮，建议直接在分类框手动输入</span>':''}
+        <button class="btn ghost sm" onclick="cancelClassify(this)">关闭</button>
+      </div>
+      <div id="cls-refine-${id}" style="display:none;margin-top:8px">
+        <div style="display:flex;gap:6px">
+          <input type="text" id="cls-refine-in-${id}" placeholder="例如：这是某电影的角色手办" style="flex:1" onkeydown="if(event.key==='Enter')clsRefineSend(${id})">
+          <button class="btn p sm" onclick="clsRefineSend(${id})">发送</button>
+        </div>
+        <div class="ai-chips">${['这是某动漫/电影/游戏的角色周边','按用途归类（收纳/装饰/工具）','归入更细的子分类'].map(c=>`<button class="chip" onclick="clsRefineChip(${id},this)">${esc(c)}</button>`).join('')}</div>
+      </div>
+    </div>`;
   }catch(e){
     const msg='AI 分类请求失败：'+(e&&e.message?e.message:e);
-    box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div>`;
+    box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="llmClassify(${id},null,'${esc(hint)}',${esc(JSON.stringify(history))})">重试</button></div>`;
     toast(msg);
   }
+}
+function clsRefine(id){
+  const box=$('#cls-refine-'+id);if(!box)return;
+  box.style.display=box.style.display==='none'?'block':'none';
+  const i=$('#cls-refine-in-'+id);if(i&&box.style.display==='block')i.focus();
+}
+function clsRefineChip(id,el){const i=$('#cls-refine-in-'+id);if(i){i.value=el.textContent;i.focus()}}
+function clsRefineSend(id){
+  const i=$('#cls-refine-in-'+id);const v=i?i.value.trim():'';
+  if(!v){toast('先写一句纠正');return}
+  const ctx=_clsCtx[id]||{};
+  llmClassify(id,ctx.btn,v,ctx.history||[]);
 }
 function cancelClassify(btn){const b=btn&&btn.closest?btn.closest('.llm-box'):null;if(b)b.innerHTML=''}
 // ===== AI 自动分类：先弹窗收集用户分类提示（可选） =====
@@ -995,6 +1040,7 @@ async function applyCategory(id,cat,isNew,alias){
   const url=isNew?'/api/confirm-new-category':'/api/recategorize';
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat,alias:alias||''})});
   const j=await r.json();
+  delete _clsCtx[id];
   toast(j.message||'已应用分类，归档名与归档路径已同步');
   await loadPending();if(typeof search==='function')await search();
   refreshDrawerData();
