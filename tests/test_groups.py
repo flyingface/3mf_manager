@@ -130,3 +130,20 @@ class TestSuggestions:
     def _up(client, name, title, did):
         r = fetch(client, "/api/upload", files=[("file", name, _make_3mf_bytes(title, did))])
         return r["results"][0]["file"]
+
+
+class TestGroupDetailGet:
+    def test_detail_via_get_query(self, client):
+        """回归：GET /api/groups/get?id=N 收到 parse_qs（值为列表），不得 500。"""
+        r = fetch(client, "/api/upload", files=[("file", "gq.3mf", _make_3mf_bytes("查询甲", "CNq1"))])
+        fid = r["results"][0]["file"]["id"]
+        fetch(client, "/api/groups", data={"create": {"name": "查询组", "file_ids": [fid]}})
+        res = fetch(client, f"/api/groups/get?id={fid}")
+        assert res["ok"] and res["group"]["name"] == "查询组"
+
+    def test_detail_via_post(self, client):
+        r = fetch(client, "/api/upload", files=[("file", "gp.3mf", _make_3mf_bytes("查询乙", "CNq2"))])
+        fid = r["results"][0]["file"]["id"]
+        fetch(client, "/api/groups", data={"create": {"name": "查询组2", "file_ids": [fid]}})
+        res = fetch(client, "/api/groups/get", data={"id": fid})
+        assert res["ok"] and res["group"]["name"] == "查询组2"

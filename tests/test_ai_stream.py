@@ -100,3 +100,34 @@ def test_config_exposes_latency(monkeypatch, client):
     server.llm_client.last_latency["ms"] = 123
     cfg = fetch(client, "/api/config")
     assert cfg["last_ai_latency_ms"] == 123
+
+
+def test_split_chat_meta_bare_no_newline():
+    """回归：模型漏掉换行直接输出 META: 时同样截断，不把元数据留给可见回复。"""
+    reply, meta = server._split_chat_meta('你好META:{"file_ids":[1]}')
+    assert reply == "你好"
+    assert json.loads(meta)["file_ids"] == [1]
+
+
+def test_chat_stream_no_newline_meta_not_leaked(monkeypatch, client):
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
+
+    def fake_stream(messages, temperature=0.3, max_tokens=800):
+        yield "直接回答。"
+        yield 'META:{"file_ids":[]}'
+
+    monkeypatch.setattr(server.llm_client, "chat_stream", fake_stream)
+    import http.client
+    host, port = client.replace("http://", "").split(":")
+    c = http.client.HTTPConnection(host, int(port), timeout=15)
+    try:
+        c.request("POST", "/api/chat/stream", body=json.dumps({"session_id": "tnl", "message": "问"}),
+                  headers={"Content-Type": "application/json"})
+        r = c.getresponse()
+        raw = r.read().decode("utf-8")
+    finally:
+        c.close()
+    events = [json.loads(line[6:]) for chunk in raw.split("\n\n") for line in chunk.split("\n") if line.startswith("data: ")]
+    deltas = "".join(e["delta"] for e in events if e["type"] == "delta")
+    assert "META" not in deltas, "无换行的 META 也必须截留"
+    assert events[-1]["type"] == "final" and events[-1]["reply"] == "直接回答。"

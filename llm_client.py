@@ -153,3 +153,9 @@ def session_add(sid, role, content, maxlen=30):
 
 def session_clear(sid):
     _sessions.pop(sid, None)
+
+def session_pop_user(sid):
+    """回退最近一条 user 消息：本轮调用失败时避免悬空的未回复提问污染下轮上下文。"""
+    msgs = _sessions.get(sid)
+    if msgs and msgs[-1]["role"] == "user":
+        msgs.pop()

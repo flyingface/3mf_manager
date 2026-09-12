@@ -346,9 +346,13 @@ CHAT_SYS_PROMPT = (
     "5. 确保 META: 行是合法 JSON。"
 )
 
-def _chat_messages(files_summary):
-    return [{"role": "system", "content": CHAT_SYS_PROMPT},
+CHAT_HISTORY_MAX = 12  # 多轮上下文最多带回的消息条数（约 6 轮），防提示词膨胀
+
+def _chat_messages(files_summary, history=None):
+    msgs = [{"role": "system", "content": CHAT_SYS_PROMPT},
             {"role": "user", "content": "（相关文件清单）\n" + files_summary}]
+    msgs.extend((history or [])[-CHAT_HISTORY_MAX:])
+    return msgs
 
 def _chat_meta_validated(meta_data, rows):
     """校验 META 数据 → (file_ids, files, action)。白名单只放行 archive。"""
@@ -378,18 +382,25 @@ def _split_chat_meta(raw):
     """把 LLM 输出拆成 (可见回复文本, META JSON 字符串或 None)。
 
     约定最后一行形如 'META:{...}'；没有该行时整体视为回复文本。
+    兜底：模型漏掉换行直接输出 'META:{...}' 时同样截断（与流式预览的截断点保持一致，
+    否则流式期间已隐藏的 META 段会在收尾 flush 时泄漏回可见回复）。
     """
     text = raw or ""
     idx = text.find("\nMETA:")
+    sep = "\nMETA:"
+    if idx == -1:
+        idx = text.find("META:")
+        sep = "META:"
     if idx != -1:
-        return text[:idx].strip(), text[idx + len("\nMETA:"):].strip()
-    if text.startswith("META:"):
-        return "", text[len("META:"):].strip()
+        return text[:idx].strip(), text[idx + len(sep):].strip()
     return text.strip(), None
 
 def llm_chat_reply(history, files_summary, rows):
-    """非流式多轮对话：META 行协议；无 META 时兼容纯 JSON 结构化输出；否则纯文本降级。"""
-    raw = llm_client.chat(_chat_messages(files_summary), temperature=0.4, max_tokens=800)
+    """非流式多轮对话：META 行协议；无 META 时兼容纯 JSON 结构化输出；否则纯文本降级。
+
+    history（session 记录，含当前这条用户消息）会作为多轮上下文一并送入 LLM。
+    """
+    raw = llm_client.chat(_chat_messages(files_summary, history), temperature=0.4, max_tokens=800)
     reply, meta = _split_chat_meta(raw)
     meta_data = None
     if meta is not None:
@@ -1182,6 +1193,8 @@ class Handler(BaseHTTPRequestHandler):
             f"{r['id']}. {r['filename']} | {r['title']} | 分类:{r['category']} | tags:{r['tags']} | 状态:{r['status']}"
             for r in rows)
         llm_client.session_add(sid, "user", msg)
+        # 多轮上下文：session 里已含当前这条 user 消息，连同历史一起送入
+        messages = _chat_messages(summary, llm_client.session_get(sid))
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -1195,7 +1208,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             full = ""
             emitted = 0
-            for delta in llm_client.chat_stream(_chat_messages(summary), temperature=0.4, max_tokens=800):
+            for delta in llm_client.chat_stream(messages, temperature=0.4, max_tokens=800):
                 full += delta
                 cut = full.find("\nMETA:")
                 if cut == -1 and "META:" in full:
@@ -1214,13 +1227,23 @@ class Handler(BaseHTTPRequestHandler):
                     meta_data = json.loads(meta)
                 except ValueError:
                     LOG.warning("对话 META 行解析失败: %s", meta[:200])
+            else:
+                # 与非流式一致：模型直接输出完整 JSON（无 META 行）时兜底解析
+                try:
+                    data = llm_client.extract_json(full)
+                    if isinstance(data, dict) and ("reply" in data or "file_ids" in data or "action" in data):
+                        meta_data = data
+                        reply = str(data.get("reply") or "").strip()
+                except ValueError:
+                    pass
             file_ids, files, action = _chat_meta_validated(meta_data or {}, rows)
             reply = reply.strip()
             llm_client.session_add(sid, "assistant", reply)
             emit({"type": "final", "reply": reply, "files": files, "action": action})
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            llm_client.session_pop_user(sid)  # 客户端取消：不留悬空提问
         except Exception as e:
+            llm_client.session_pop_user(sid)
             LOG.exception("流式对话异常")
             try:
                 emit({"type": "error", "error": str(e)})
@@ -1266,7 +1289,9 @@ class Handler(BaseHTTPRequestHandler):
         done = skipped = 0
         try:
             for row in rows:
-                rule_cat = categorize(row["folder"], row["filename"], row["title"], custom_cats=load_custom_categories())
+                rule_cat = categorize(row["folder"], row["filename"], row["title"],
+                                      custom_cats=load_custom_categories(),
+                                      learned_rules=load_learned_rules())
                 if rule_cat != "其他/未分类" and not include_rule:
                     # 规则已命中：不调 LLM，但结果仍进计划（跳过仅指省调用，不是不整理）
                     skipped += 1
@@ -1470,8 +1495,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "groups": groups})
 
     def _api_groups_get(self, data):
-        """组详情：{id}。"""
-        gid = int((data or {}).get("id") or 0)
+        """组详情：{id}。GET 路由收到的 data 是 parse_qs 结果（值为列表），需兼容。"""
+        data = data or {}
+        gid_raw = data.get("id") or 0
+        if isinstance(gid_raw, list):
+            gid_raw = gid_raw[0] if gid_raw else 0
+        gid = int(gid_raw or 0)
         conn = db_conn()
         payload = api_group_payload(conn, gid)
         conn.close()
@@ -1838,7 +1867,7 @@ class Handler(BaseHTTPRequestHandler):
             llm_client.session_add(sid, "assistant", reply)
             self._send(200, {"reply": reply, "files": files, "action": action})
         except Exception as e:
-            llm_client.session_clear(sid)
+            llm_client.session_pop_user(sid)  # 只回退本轮提问，保留历史多轮上下文
             self._send(500, {"error": f"对话失败：{e}"})
 
 # ---------------------------------------------------------------

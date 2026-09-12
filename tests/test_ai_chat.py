@@ -75,3 +75,51 @@ def test_chat_archive_via_action_executes(monkeypatch, client):
     assert all(x["ok"] for x in res["results"])
     applied = fetch(client, "/api/files?status=applied")["files"]
     assert len(applied) == 2
+
+
+def test_chat_history_passed_to_llm(monkeypatch, client):
+    """回归：多轮对话必须把 session 历史送进 LLM（批次D 重构曾整体丢失上下文）。"""
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
+    seen = []
+
+    def fake_chat(messages, **kw):
+        seen.append(messages)
+        return json.dumps({"reply": "第一条回复", "file_ids": []}, ensure_ascii=False)
+
+    monkeypatch.setattr(server.llm_client, "chat", fake_chat)
+    try:
+        fetch(client, "/api/chat", data={"session_id": "th", "message": "第一问"})
+        fetch(client, "/api/chat", data={"session_id": "th", "message": "第二问"})
+        assert len(seen) == 2
+        roles = [(m["role"], m["content"]) for m in seen[1]]
+        assert any(r == "user" and c == "第一问" for r, c in roles), "第 2 次调用必须带上第 1 轮提问"
+        assert any(r == "assistant" and "第一条回复" in c for r, c in roles), "第 2 次调用必须带上第 1 轮回复"
+        assert any(r == "user" and c == "第二问" for r, c in roles)
+    finally:
+        server.llm_client.session_clear("th")
+
+
+def test_chat_failed_turn_not_in_history(monkeypatch, client):
+    """失败的本轮提问只回退自身，不丢历史；重试不从残骸开始。"""
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
+    calls = {"n": 0}
+
+    def flaky(messages, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("临时超时")
+        return json.dumps({"reply": f"回复{calls['n']}", "file_ids": []}, ensure_ascii=False)
+
+    monkeypatch.setattr(server.llm_client, "chat", flaky)
+    try:
+        fetch(client, "/api/chat", data={"session_id": "tf", "message": "第一问"})
+        fetch(client, "/api/chat", data={"session_id": "tf", "message": "会失败的一问"})
+        res = fetch(client, "/api/chat", data={"session_id": "tf", "message": "第二问"})
+        assert res["reply"] == "回复3"
+        sess = server.llm_client.session_get("tf")
+        contents = [m["content"] for m in sess]
+        contents = [m["content"] for m in sess]
+        assert "会失败的一问" not in contents, "失败提问不能留在 session"
+        assert "第一问" in contents and "回复1" in contents
+    finally:
+        server.llm_client.session_clear("tf")

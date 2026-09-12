@@ -897,6 +897,8 @@ async function loadDrawerGroups(f){
   if(!box)return;
   let groups=[];
   try{groups=(await(await fetch('/api/groups')).json()).groups||[]}catch(e){box.innerHTML='';return}
+  // 同步进作品缓存：抽屉内的 grpLeave/grpPrintAll 依赖 _worksCache 取组名/成员
+  groups.forEach(g=>{const i=_worksCache.findIndex(x=>x.id===g.id);if(i>=0)_worksCache[i]=g;else _worksCache.push(g)});
   const mine=groups.filter(g=>(g.members||[]).some(m=>m.file_id===f.id));
   if(!mine.length){box.innerHTML='';return}
   box.innerHTML=mine.map(g=>groupSectionHTML(f,g)).join('');
@@ -919,7 +921,7 @@ function groupSectionHTML(f,g){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
       <button class="btn ok sm" onclick="grpPrintAll(${g.id})">全部标记已打印</button>
       ${!me.is_primary?`<button class="btn ghost sm" onclick="grpSetPrimary(${g.id},${f.id})">设为主文件</button>`:''}
-      <button class="btn dg sm" onclick="grpLeave(${g.id},${f.id},'${esc(g.name).replace(/'/g,'')}')">移出本组</button>
+      <button class="btn dg sm" onclick="grpLeave(${g.id},${f.id})">移出本组</button>
     </div>`;
 }
 async function grpApi(payload){
@@ -936,17 +938,24 @@ async function grpSetPrinted(gid,fid,val){
   if(g)refreshDrawerGroups(gid);
 }
 async function grpPrintAll(gid){
-  const g=_worksCache.find(x=>x.id===gid)||await grpApi({id:0}),ms=(g||{}).members||[];
+  let g=_worksCache.find(x=>x.id===gid);
+  if(!g){ // 缓存未命中（如抽屉先于作品视图打开）：拉取组详情，不可再走列表接口
+    try{g=(await(await fetch('/api/groups/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:gid})})).json()).group}catch(e){}
+  }
+  const ms=(g||{}).members||[];
   for(const m of ms.filter(x=>x.role!=='duplicate'&&!x.printed)){
     await grpApi({member:{group_id:gid,file_id:m.file_id,printed:true}});
   }
-  toast('已全部标记打印');refreshDrawerGroups(gid);
+  if(ms.length)toast('已全部标记打印');
+  refreshDrawerGroups(gid);
 }
 async function grpSetPrimary(gid,fid){
   const g=await grpApi({member:{group_id:gid,file_id:fid,is_primary:true}});
   if(g){toast('已设为主文件');refreshDrawerGroups(gid)}
 }
-async function grpLeave(gid,fid,gname){
+async function grpLeave(gid,fid){
+  // 组名从缓存取，不走内联 onclick 传字符串（避免引号转义破坏按钮）
+  const gname=(_worksCache.find(x=>x.id===gid)||{}).name||'';
   if(!await uiConfirm({title:'移出本组', body:`将把当前文件从作品「<b>${esc(gname)}</b>」中移出（文件本身不受影响）。`, okText:'移出'}))return;
   const g=await grpApi({member:{group_id:gid,file_id:fid,remove:true}});
   if(g){toast('已移出本组');refreshDrawerGroups(gid)}
@@ -1223,9 +1232,12 @@ async function planApply(){
 }
 // AI 分类建议盒：支持多轮对话式纠正（上下文逐轮累积）
 const _clsCtx={}; // id -> {btn, history}
+const _clsRetryCtx={}; // id -> {hint, history}：失败重试按钮的上下文（用户输入，不能内联进 onclick，否则引号会打断 JS）
+function llmClassifyRetry(id){const c=_clsRetryCtx[id]||{};llmClassify(id,null,c.hint||'',c.history||[])}
 async function llmClassify(id,btn,hint,history){
   hint=(hint==null?'':String(hint)).trim();
   history=Array.isArray(history)?history:[];
+  _clsRetryCtx[id]={hint,history};
   const currentCat=btn?(btn.getAttribute('data-cur')||''):'';
   const box=document.getElementById('llm-'+id);
   if(!box)return;
@@ -1235,7 +1247,7 @@ async function llmClassify(id,btn,hint,history){
     const j=await r.json();
     if(!r.ok){
       const msg=j.error||'AI 分类失败';
-      box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="llmClassify(${id},null,'${esc(hint)}',${esc(JSON.stringify(history))})">重试</button></div>`;
+      box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="llmClassifyRetry(${id})">重试</button></div>`;
       toast(msg);return;
     }
     const round=history.length+1;
@@ -1267,7 +1279,7 @@ async function llmClassify(id,btn,hint,history){
     </div>`;
   }catch(e){
     const msg='AI 分类请求失败：'+(e&&e.message?e.message:e);
-    box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="llmClassify(${id},null,'${esc(hint)}',${esc(JSON.stringify(history))})">重试</button></div>`;
+    box.innerHTML=`<div class="hint" style="color:var(--err);padding:8px 0">${esc(msg)}</div><div style="margin-top:6px"><button class="btn ghost sm" onclick="llmClassifyRetry(${id})">重试</button></div>`;
     toast(msg);
   }
 }
@@ -1513,7 +1525,7 @@ let sessionId='s'+Date.now();
 async function sendChat(){
   const msg=$('#chatIn').value.trim();if(!msg)return;
   $('#chatIn').value='';addMsg('user',msg);
-  const d=document.createElement('div');d.className='msg ai';
+  const d=document.createElement('div');d.className='msg assistant';
   d.innerHTML='<div class="bubble"><span class="dots"><i></i><i></i><i></i></span>正在思考…</div>';
   $('#chatMsgs').appendChild(d);$('#chatMsgs').scrollTop=1e9;
   const b=d.querySelector('.bubble');
@@ -1557,7 +1569,7 @@ function renderChatFinal(b,final){
   if(final.action&&final.action.type==='archive'&&final.action.ids&&final.action.ids.length){
     _chatActionSeq++;const key='a'+_chatActionSeq;
     window._chatActions=window._chatActions||{};window._chatActions[key]=final.action.ids;
-    html+=`<div class="confirm-strip">将归档 <b>${final.action.ids.length}</b> 个文件${final.action.target?` 到 <b>${esc(final.action.target)}</b>`:''}<button class="btn p sm" style="margin-left:auto" onclick="chatDoArchive('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button></div>`;
+    html+=`<div class="confirm-strip"${final.action.target?` data-target="${esc(final.action.target)}"`:''}>将归档 <b>${final.action.ids.length}</b> 个文件${final.action.target?` 到 <b>${esc(final.action.target)}</b>`:''}<button class="btn p sm" style="margin-left:auto" onclick="chatDoArchive('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button></div>`;
   }
   b.innerHTML=html;
   $('#chatMsgs').scrollTop=1e9;

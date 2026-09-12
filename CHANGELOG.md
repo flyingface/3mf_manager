@@ -2,7 +2,7 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [2.4.0] - 2026-09-13
+## [2.4.0] - 2026-09-12
 
 AI 交互增强（分支 `feat/ai-interaction`，五个批次，交互设计稿见 `design/ai-interaction-mockups.html`）。
 
