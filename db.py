@@ -18,7 +18,8 @@ import sqlite3
 # 迁移版本历史：
 #   1 = 基础表（files/attachments/settings + 索引 + files.plate_imgs）
 #   2 = files.rel_path / attachments.rel_path（相对库根路径，切换库根后可重定 abs_path）
-SCHEMA_VERSION = 2
+#   3 = 作品关联图层（asset_groups / group_members，目录之上的关系层）
+SCHEMA_VERSION = 3
 
 
 def db_conn(db_path):
@@ -78,7 +79,34 @@ def _migrate_v2(conn):
     _add_column(conn, "attachments", "rel_path", "TEXT DEFAULT ''")
 
 
-_MIGRATIONS = {1: _migrate_v1, 2: _migrate_v2}
+def _migrate_v3(conn):
+    # 作品关联图层：目录管存放，图管关系。删除文件时由应用层清理成员行。
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS asset_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        kind TEXT DEFAULT 'kit',
+        cover_file_id INTEGER,
+        print_state TEXT DEFAULT '',
+        created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS group_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        file_id INTEGER NOT NULL,
+        role TEXT DEFAULT 'component',
+        confidence TEXT DEFAULT 'high',
+        is_primary INTEGER DEFAULT 0,
+        confirmed INTEGER DEFAULT 1,
+        printed INTEGER DEFAULT 0,
+        UNIQUE(group_id, file_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gm_group ON group_members(group_id);
+    CREATE INDEX IF NOT EXISTS idx_gm_file ON group_members(file_id);
+    """)
+
+
+_MIGRATIONS = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3}
 
 
 def init_db(db_path, library_root, inbox, thumb_dir, attach_dir):

@@ -40,6 +40,7 @@ import llm_client            # 配置 + LLM 客户端
 import parse_3mf            # 复用解析器
 import db as dbm            # 存储层（schema/迁移/路径工具，显式传参）
 import classify             # 分类/别名/目录规划纯逻辑层
+import relate               # 确定性关联（design_id/geom_sig/词干聚类）
 
 # ---- 组合根：把 classify/db 的纯逻辑与运行时配置绑定并对外复用（兼容旧 API）----
 SEP = classify.SEP
@@ -103,6 +104,61 @@ def save_learned_rules(rules):
     conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('learned_rules',?)",
                  (json.dumps(rules, ensure_ascii=False),))
     conn.commit(); conn.close()
+
+# ---------------------------------------------------------------
+# 作品关联图层（asset_groups / group_members）
+# ---------------------------------------------------------------
+GROUP_ROLES = ("component", "variant", "duplicate", "accessory")
+ROLE_NAMES = {"component": "组件", "variant": "变体", "duplicate": "重复", "accessory": "配件"}
+
+def group_rows_for(conn, group_id):
+    """组详情：组行 + 成员（带文件信息）。"""
+    g = conn.execute("SELECT * FROM asset_groups WHERE id=?", (group_id,)).fetchone()
+    if not g:
+        return None, []
+    members = [dict(m) | dict(f) for m, f in (
+        (m, conn.execute("SELECT * FROM files WHERE id=?", (m["file_id"],)).fetchone())
+        for m in conn.execute(
+            "SELECT * FROM group_members WHERE group_id=? ORDER BY is_primary DESC, id", (group_id,)
+        ).fetchall())
+        if f]
+    return dict(g), members
+
+def api_group_payload(conn, group_id):
+    g, members = group_rows_for(conn, group_id)
+    if not g:
+        return None
+    printed = sum(1 for m in members if m.get("printed"))
+    return {"id": g["id"], "name": g["name"], "kind": g["kind"],
+            "cover_file_id": g["cover_file_id"],
+            "members": [{"member_id": m["id"], "file_id": m["file_id"], "role": m["role"],
+                         "is_primary": bool(m["is_primary"]), "printed": bool(m["printed"]),
+                         "filename": m["filename"], "alias": m["alias"],
+                         "category": m["category"], "thumb": m["thumb"],
+                         "status": m["status"], "size_mb": m["size_mb"],
+                         "sha256": m["sha256"]} for m in members],
+            "stats": {"total": len(members), "printed": printed}}
+
+def prune_orphan_members(conn):
+    """文件被删除后清理其组员行；主文件缺失时把 primary 转给第一个成员。"""
+    conn.execute("DELETE FROM group_members WHERE file_id NOT IN (SELECT id FROM files)")
+    groups = conn.execute("SELECT id FROM asset_groups").fetchall()
+    for g in groups:
+        ms = conn.execute("SELECT id, is_primary FROM group_members WHERE group_id=?", (g["id"],)).fetchall()
+        if not ms:
+            conn.execute("DELETE FROM asset_groups WHERE id=?", (g["id"],)); continue
+        if not any(m["is_primary"] for m in ms):
+            conn.execute("UPDATE group_members SET is_primary=1 WHERE id=?", (ms[0]["id"],))
+        # 封面失效则回退主文件
+        cov = conn.execute("SELECT cover_file_id FROM asset_groups WHERE id=?", (g["id"],)).fetchone()
+        if cov and cov["cover_file_id"]:
+            alive = conn.execute("SELECT 1 FROM group_members WHERE group_id=? AND file_id=?",
+                                 (g["id"], cov["cover_file_id"])).fetchone()
+            if not alive:
+                prim = conn.execute("SELECT file_id FROM group_members WHERE group_id=? AND is_primary=1",
+                                    (g["id"],)).fetchone()
+                conn.execute("UPDATE asset_groups SET cover_file_id=? WHERE id=?",
+                             (prim["file_id"] if prim else None, g["id"]))
 
 def validate_rel_target(raw):
     """校验用户提供的相对归档子路径：合法返回归一化路径（/ 分隔），非法返回 None。
@@ -1317,6 +1373,127 @@ class Handler(BaseHTTPRequestHandler):
         save_learned_rules(rules)
         self._send(200, {"ok": True, "rule": entry, "rules": rules})
 
+    def _api_groups(self, data):
+        """作品组 API。data: {} 列表 / {id} 详情 / {create:{name, file_ids, roles?, primary_id?, cover_file_id?}} 创建 /
+        {update:{group_id, name?|cover_file_id?}} 更新 / {delete:{group_id}} 删除 /
+        {member:{group_id, file_id, role?, printed?, is_primary?, remove?, add?}} 成员操作。"""
+        conn = db_conn()
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        if data.get("create"):
+            c = data["create"]
+            name = (c.get("name") or "").strip()
+            file_ids = [int(i) for i in (c.get("file_ids") or [])]
+            if not name or not file_ids:
+                conn.close(); self._send(400, {"error": "需要作品名与至少一个文件"}); return
+            roles = c.get("roles") or {}
+            if not isinstance(roles, dict):
+                roles = {}
+            cur = conn.execute(
+                "INSERT INTO asset_groups(name, kind, cover_file_id, created_at) VALUES(?,?,?,?)",
+                (name, str(c.get("kind") or "kit"), c.get("cover_file_id"), now))
+            gid = cur.lastrowid
+            primary_id = int(c.get("primary_id") or file_ids[0])
+            if primary_id not in file_ids:
+                file_ids.append(primary_id)
+            for fid in file_ids:
+                role = roles.get(str(fid)) or roles.get(fid) or "component"
+                if role not in GROUP_ROLES:
+                    role = "component"
+                conn.execute(
+                    "INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,?,1)",
+                    (gid, fid, role, "high" if role != "duplicate" else "high",
+                     1 if fid == primary_id else 0))
+            conn.execute("UPDATE asset_groups SET cover_file_id=? WHERE id=?",
+                         (int(c.get("cover_file_id") or primary_id), gid))
+            conn.commit()
+            payload = api_group_payload(conn, gid)
+            conn.close(); self._send(200, {"ok": True, "group": payload}); return
+        if data.get("update"):
+            u = data["update"]
+            gid = int(u.get("group_id") or 0)
+            if not conn.execute("SELECT 1 FROM asset_groups WHERE id=?", (gid,)).fetchone():
+                conn.close(); self._send(404, {"error": "not found"}); return
+            if u.get("name") is not None:
+                nm = str(u["name"]).strip()
+                if nm:
+                    conn.execute("UPDATE asset_groups SET name=? WHERE id=?", (nm, gid))
+            if u.get("cover_file_id") is not None:
+                conn.execute("UPDATE asset_groups SET cover_file_id=? WHERE id=?", (int(u["cover_file_id"]), gid))
+            conn.commit()
+            payload = api_group_payload(conn, gid)
+            conn.close(); self._send(200, {"ok": True, "group": payload}); return
+        if data.get("delete"):
+            gid = int(data["delete"].get("group_id") or 0)
+            conn.execute("DELETE FROM group_members WHERE group_id=?", (gid,))
+            conn.execute("DELETE FROM asset_groups WHERE id=?", (gid,))
+            prune_orphan_members(conn)
+            conn.commit(); conn.close()
+            self._send(200, {"ok": True}); return
+        if "member" in data:
+            m = data["member"]
+            gid = int(m.get("group_id") or 0)
+            fid = int(m.get("file_id") or 0)
+            if not conn.execute("SELECT 1 FROM asset_groups WHERE id=?", (gid,)).fetchone():
+                conn.close(); self._send(404, {"error": "not found"}); return
+            if m.get("remove"):
+                conn.execute("DELETE FROM group_members WHERE group_id=? AND file_id=?", (gid, fid))
+                prune_orphan_members(conn); conn.commit()
+            elif m.get("add"):
+                role = m.get("role") or "component"
+                if role not in GROUP_ROLES:
+                    role = "component"
+                conn.execute(
+                    "INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,0,1)",
+                    (gid, fid, role, "medium"))
+                conn.commit()
+            else:
+                if m.get("role"):
+                    role = m["role"] if m["role"] in GROUP_ROLES else "component"
+                    conn.execute("UPDATE group_members SET role=? WHERE group_id=? AND file_id=?", (role, gid, fid))
+                if m.get("printed") is not None:
+                    conn.execute("UPDATE group_members SET printed=? WHERE group_id=? AND file_id=?",
+                                 (1 if m["printed"] else 0, gid, fid))
+                if m.get("is_primary"):
+                    conn.execute("UPDATE group_members SET is_primary=0 WHERE group_id=?", (gid,))
+                    conn.execute("UPDATE group_members SET is_primary=1 WHERE group_id=? AND file_id=?", (gid, fid))
+                conn.commit()
+            payload = api_group_payload(conn, gid)
+            conn.close(); self._send(200, {"ok": True, "group": payload}); return
+        # 默认：列表（带统计）
+        groups = []
+        for g in conn.execute("SELECT id FROM asset_groups ORDER BY id DESC").fetchall():
+            groups.append(api_group_payload(conn, g["id"]))
+        conn.close()
+        self._send(200, {"ok": True, "groups": groups})
+
+    def _api_groups_get(self, data):
+        """组详情：{id}。"""
+        gid = int((data or {}).get("id") or 0)
+        conn = db_conn()
+        payload = api_group_payload(conn, gid)
+        conn.close()
+        if not payload:
+            self._send(404, {"error": "not found"}); return
+        self._send(200, {"ok": True, "group": payload})
+
+    def _api_group_suggestions(self, _=None):
+        """确定性关联建议：全库 design_id/sha256/geom_sig/词干聚类（纯本地，无 AI）。"""
+        conn = db_conn()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, filename, design_id, sha256, geom_sig, thumb, alias, status, created_at FROM files")]
+        existing = {m["file_id"] for m in conn.execute("SELECT file_id FROM group_members")}
+        conn.close()
+        clusters = relate.find_clusters(rows)
+        out = []
+        for c in clusters:
+            fids = [f["id"] for f in c["files"]]
+            known = sum(1 for f in fids if f in existing)
+            out.append({"confidence": c["confidence"], "signals": c["signals"],
+                        "file_ids": fids, "already_grouped": known,
+                        "files": [{"id": f["id"], "filename": f["filename"], "thumb": f["thumb"] or "",
+                                   "alias": f["alias"], "status": f["status"]} for f in c["files"]]})
+        self._send(200, {"ok": True, "suggestions": out})
+
     def _api_dirs(self, _=None):
         """返回模型根目录下所有已存在的目录（相对路径，按层级排序），供归档路径选择器使用。
 
@@ -1387,6 +1564,8 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("DELETE FROM attachments WHERE id=?", (a["id"],))
         # 4) 删除文件索引记录
         conn.execute("DELETE FROM files WHERE id=?", (fid,))
+        # 5) 作品组：清理成员行、转移主文件/封面（图与索引保持一致）
+        prune_orphan_members(conn)
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "removed_index": fid,
                          "moved_main": os.path.basename(moved_main) if moved_main else None,
@@ -1601,6 +1780,9 @@ GET_ROUTES = {
     "/api/attachments": Handler._api_attachments,
     "/api/dirs": Handler._api_dirs,
     "/api/rules": lambda h, _: h._api_rules({}),
+    "/api/groups": Handler._api_groups,
+    "/api/groups/get": Handler._api_groups_get,
+    "/api/groups/suggestions": Handler._api_group_suggestions,
 }
 
 POST_ROUTES = {
@@ -1628,6 +1810,8 @@ POST_ROUTES = {
     "/api/set-alias": Handler._api_set_alias,
     "/api/set-target": Handler._api_set_target,
     "/api/rules": Handler._api_rules,
+    "/api/groups": Handler._api_groups,
+    "/api/groups/get": Handler._api_groups_get,
 }
 
 # 以 multipart/form-data 收请求体的端点（body 是二进制，不能走 JSON 预读）
