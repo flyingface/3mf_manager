@@ -1063,7 +1063,13 @@ async function aiBatchStart(){
         const chunk=buf.slice(0,i);buf=buf.slice(i+2);
         const line=chunk.split('\n').find(l=>l.startsWith('data: '));if(!line)continue;
         const ev=JSON.parse(line.slice(6));
-        if(ev.type==='skip'){skipped++}
+        if(ev.type==='skip'){
+          skipped++;
+          // 规则命中：不调 LLM，但结果照常进计划（保证批量全量覆盖）
+          results.push({id:ev.id,filename:ev.filename,category:ev.rule_category,alias:ev.alias||'',
+                        target_dir:ev.target_dir||'',confidence:'high',checked:true,rule:true});
+          lastFile=ev.filename||'';
+        }
         else if(ev.type==='progress'){
           if(ev.error){results.push({id:ev.id,filename:ev.filename,error:ev.error,checked:false})}
           else{results.push({id:ev.id,filename:ev.filename,category:ev.category,alias:ev.alias,reason:ev.reason,confidence:ev.confidence,is_new:ev.is_new,thumb:ev.thumb,checked:ev.confidence==='high'})}
@@ -1116,7 +1122,7 @@ function planConf(c){const lv=c==='high'?3:c==='low'?1:2;return `<span class="co
 function planNewCatsAgg(){const m={};_planItems.forEach(it=>{if(it.is_new&&it.category&&!it.error)m[it.category]=(m[it.category]||0)+1});return m}
 function openPlanReview(results,skipped,cancelled){
   _planItems=results.map(r=>({...r,_editing:false}));
-  $('#planSub').textContent=`${_planItems.length} 个文件经 AI 分析`+(skipped?` · 规则已命中 ${skipped} 个`:'')+(cancelled?' · 已暂停（保留以上结果）':'');
+  $('#planSub').textContent=`${_planItems.length} 个文件的整理计划`+(skipped?` · 其中 ${skipped} 个规则命中（未调 AI）`:'')+(cancelled?' · 已暂停（保留以上结果）':'');
   fillPlanCatList();renderPlan();
   $('#planMask').classList.add('show');
 }
@@ -1140,7 +1146,7 @@ function renderPlan(){
       row=`<span class="pill r">失败</span><div class="hint" style="margin-top:4px">${esc(it.error)}</div>
         <div style="display:flex;gap:5px;margin-top:6px"><input type="text" id="planRetry-${idx}" placeholder="用一句话描述它…" style="font-size:11px;padding:4px 8px;min-width:0"><button class="btn ghost sm" onclick="planRetry(${idx})">重判</button></div>`;
     }else{
-      row=`<span class="pill ${it.is_new?'y':''}" style="${it.is_new?'':'background:var(--ok-soft);color:var(--ok)'}">${esc(it.category)}</span>${it.reason?`<div class="hint" style="margin-top:3px">${esc(it.reason)}</div>`:''}`;
+      row=`<span class="pill ${it.is_new?'y':''}" style="${it.is_new?'':'background:var(--ok-soft);color:var(--ok)'}">${esc(it.category)}</span>${it.rule?' <span class="hint">规则命中</span>':''}${it.reason&&!it.rule?`<div class="hint" style="margin-top:3px">${esc(it.reason)}</div>`:''}`;
     }
     return `<tr class="${it.error?'fail':(it.confidence!=='high'?'low':'')}" id="planrow-${idx}">
       <td><input type="checkbox" ${it.checked?'checked':''} ${it.error?'disabled':''} onchange="_planItems[${idx}].checked=this.checked;planCount()"></td>

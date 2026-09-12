@@ -52,6 +52,8 @@ def test_batch_sse_skips_rule_matched(monkeypatch, client):
     assert "skip" in kinds and "progress" in kinds
     skip = next(e for e in events if e["type"] == "skip")
     assert skip["id"] == ruled["id"] and skip["rule_category"] == "IP·高达"
+    # 跳过仅指不调 LLM：结果仍带分类/别名/路径供计划全量覆盖
+    assert skip["alias"] and skip["target_dir"]
     prog = next(e for e in events if e["type"] == "progress")
     assert prog["id"] == unknown["id"]
     assert prog["category"] == "手办/恐龙" and prog["confidence"] == "high"

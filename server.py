@@ -1268,10 +1268,13 @@ class Handler(BaseHTTPRequestHandler):
             for row in rows:
                 rule_cat = categorize(row["folder"], row["filename"], row["title"], custom_cats=load_custom_categories())
                 if rule_cat != "其他/未分类" and not include_rule:
+                    # 规则已命中：不调 LLM，但结果仍进计划（跳过仅指省调用，不是不整理）
                     skipped += 1
                     done += 1
                     emit({"type": "skip", "id": row["id"], "filename": row["filename"],
-                          "done": done, "total": total, "rule_category": rule_cat})
+                          "done": done, "total": total, "rule_category": rule_cat,
+                          "alias": row["alias"] or "", "target_dir": row["target_dir"] or "",
+                          "thumb": row["thumb"] or ""})
                     continue
                 try:
                     res = llm_classify(row, existing, rule_cat, hint)
