@@ -865,6 +865,7 @@ function renderDrawer(f){
     ${editSec}
     <div class="dr-sec">文件信息</div>
     ${kv}
+    <div id="dr-group-${f.id}"></div>
     <div class="dr-sec">标签</div>
     <div class="tag-input" style="margin:0">
       <input type="text" id="tagin-${f.id}" placeholder="+ 输入标签后回车" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id}, this)">
@@ -884,6 +885,108 @@ function renderDrawer(f){
       <span style="flex:1"></span>
       <button class="btn ghost" onclick="openInBambu(${f.id})">${IC.print} Bambu 打开</button>`);
   fillCatList();
+  loadDrawerGroups(f);
+}
+
+// ===== 抽屉·所属作品（打印清单 + 成员操作 + 关系小图） =====
+const ROLE_CN={component:'组件',variant:'变体',duplicate:'重复',accessory:'配件'};
+async function loadDrawerGroups(f){
+  const box=document.getElementById('dr-group-'+f.id);
+  if(!box)return;
+  let groups=[];
+  try{groups=(await(await fetch('/api/groups')).json()).groups||[]}catch(e){box.innerHTML='';return}
+  const mine=groups.filter(g=>(g.members||[]).some(m=>m.file_id===f.id));
+  if(!mine.length){box.innerHTML='';return}
+  box.innerHTML=mine.map(g=>groupSectionHTML(f,g)).join('');
+  mine.forEach(g=>drawGroupGraph(g));
+}
+function groupSectionHTML(f,g){
+  const me=g.members.find(m=>m.file_id===f.id);
+  const prim=g.members.find(m=>m.is_primary)||g.members[0];
+  const printed=(g.stats||{}).printed||0,total=(g.stats||{}).total||g.members.length;
+  const printable=g.members.filter(m=>m.role!=='duplicate');
+  return `<div class="dr-sec">所属作品：${esc(g.name)}</div>
+    <div class="hint" style="margin-bottom:6px">我在组中是 ${rolePill(me.role)}，主文件为「${esc(prim.alias||prim.filename)}」${me.is_primary?'（就是我）':''}</div>
+    <div class="graph-box"><svg id="gsvg-${g.id}" viewBox="0 0 360 190" width="100%" height="170" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="legend"><span><i style="border-color:var(--primary)"></i>组件</span><span><i style="border-color:var(--purple);border-top-style:dashed"></i>变体</span><span><i style="border-color:var(--err);border-top-style:dotted"></i>重复</span><span>★ 主文件</span></div>
+    </div>
+    <div class="hint" style="margin:10px 0 4px;display:flex;align-items:center;gap:8px">打印清单 ${printed}/${total}<span class="prog" style="flex:1"><i style="width:${total?Math.round(printed/total*100):0}%"></i></span></div>
+    ${printable.map(m=>`<div class="gmem"><span class="role-star">${m.is_primary?'★':''}</span><span class="gn" title="${esc(m.filename)}">${esc(m.alias||m.filename)}</span>${rolePill(m.role)}
+      <button class="kv-ico" title="${m.printed?'标记未打印':'标记已打印'}" onclick="grpSetPrinted(${g.id},${m.file_id},${m.printed?0:1})">${m.printed?'✓':'○'}</button>
+      ${m.file_id!==f.id?`<span class="jump" onclick="openDrawer(${m.file_id})">查看</span>`:'<span class="hint">当前</span>'}</div>`).join('')}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ok sm" onclick="grpPrintAll(${g.id})">全部标记已打印</button>
+      ${!me.is_primary?`<button class="btn ghost sm" onclick="grpSetPrimary(${g.id},${f.id})">设为主文件</button>`:''}
+      <button class="btn dg sm" onclick="grpLeave(${g.id},${f.id},'${esc(g.name).replace(/'/g,'')}')">移出本组</button>
+    </div>`;
+}
+async function grpApi(payload){
+  const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const j=await r.json();
+  if(!r.ok){toast(j.error||'操作失败');return null}
+  const g=j.group;
+  const idx=_worksCache.findIndex(x=>x.id===g.id);
+  if(idx>=0)_worksCache[idx]=g;else loadWorks();
+  return g;
+}
+async function grpSetPrinted(gid,fid,val){
+  const g=await grpApi({member:{group_id:gid,file_id:fid,printed:val}});
+  if(g)refreshDrawerGroups(gid);
+}
+async function grpPrintAll(gid){
+  const g=_worksCache.find(x=>x.id===gid)||await grpApi({id:0}),ms=(g||{}).members||[];
+  for(const m of ms.filter(x=>x.role!=='duplicate'&&!x.printed)){
+    await grpApi({member:{group_id:gid,file_id:m.file_id,printed:true}});
+  }
+  toast('已全部标记打印');refreshDrawerGroups(gid);
+}
+async function grpSetPrimary(gid,fid){
+  const g=await grpApi({member:{group_id:gid,file_id:fid,is_primary:true}});
+  if(g){toast('已设为主文件');refreshDrawerGroups(gid)}
+}
+async function grpLeave(gid,fid,gname){
+  if(!await uiConfirm({title:'移出本组', body:`将把当前文件从作品「<b>${esc(gname)}</b>」中移出（文件本身不受影响）。`, okText:'移出'}))return;
+  const g=await grpApi({member:{group_id:gid,file_id:fid,remove:true}});
+  if(g){toast('已移出本组');refreshDrawerGroups(gid)}
+}
+function refreshDrawerGroups(gid){
+  if(_drawerId==null)return;
+  const f=_fileById[_drawerId];
+  if(f)loadDrawerGroups(f);
+}
+// 关系小图：中心=主文件，卫星=成员（连线颜色=关系类型），静态 SVG
+function drawGroupGraph(g){
+  const svg=document.getElementById('gsvg-'+g.id);
+  if(!svg)return;
+  const ms=g.members||[];
+  const prim=ms.find(m=>m.is_primary)||ms[0];
+  const CX=180,CY=88,R=92;
+  const colors={component:'var(--primary)',variant:'var(--purple)',duplicate:'var(--err)',accessory:'var(--muted)'};
+  const dash={component:'',variant:'5 4',duplicate:'2 4',accessory:'6 3'};
+  const sats=ms.filter(m=>m!==prim);
+  let defs='',lines='',nodes='';
+  sats.forEach((m,i)=>{
+    const ang=-Math.PI/2+i*(2*Math.PI/Math.max(sats.length,1));
+    const x=CX+R*Math.cos(ang),y=CY+R*Math.sin(ang);
+    const c=colors[m.role]||colors.component;
+    lines+=`<line x1="${CX}" y1="${CY}" x2="${x}" y2="${y}" stroke="${c}" stroke-width="2" ${dash[m.role]?`stroke-dasharray="${dash[m.role]}"`:''}/>`;
+    const nid='gc'+g.id+'_'+m.file_id;
+    if(m.thumb)defs+=`<clipPath id="${nid}"><circle cx="${x}" cy="${y}" r="18"/></clipPath>`;
+    nodes+=`<circle cx="${x}" cy="${y}" r="19" fill="var(--bg2)" stroke="${c}" stroke-width="1.6" ${dash[m.role]?`stroke-dasharray="${dash[m.role]}"`:''}/>`;
+    if(m.thumb)nodes+=`<image href="/thumbs/${m.thumb}" x="${x-18}" y="${y-18}" width="36" height="36" clip-path="url(#${nid})" preserveAspectRatio="xMidYMid slice"/>`;
+    else nodes+=`<text x="${x}" y="${y+3}" text-anchor="middle" font-size="8" fill="var(--muted)">${(ROLE_CN[m.role]||'').slice(0,2)}</text>`;
+    nodes+=`<title>${esc(m.alias||m.filename)} · ${ROLE_CN[m.role]||m.role}${m.printed?' · 已打印':''}</title>`;
+    nodes+=`<circle cx="${x}" cy="${y}" r="22" fill="transparent" style="cursor:pointer" onclick="openDrawer(${m.file_id})"/>`;
+  });
+  const pid='gp'+g.id;
+  if(prim&&prim.thumb)defs+=`<clipPath id="${pid}"><circle cx="${CX}" cy="${CY}" r="24"/></clipPath>`;
+  svg.innerHTML=`
+    ${lines}
+    ${defs}
+    <circle cx="${CX}" cy="${CY}" r="26" fill="var(--card)" stroke="var(--primary)" stroke-width="2"/>
+    ${prim&&prim.thumb?`<image href="/thumbs/${prim.thumb}" x="${CX-24}" y="${CY-24}" width="48" height="48" clip-path="url(#${pid})" preserveAspectRatio="xMidYMid slice"/>`:`<text x="${CX}" y="${CY+4}" text-anchor="middle" font-size="10" fill="var(--muted)">主文件</text>`}
+    ${nodes}
+    ${prim?`<text x="${CX}" y="${CY+42}" text-anchor="middle" font-size="9" font-weight="600" fill="var(--text)">★ ${esc((prim.alias||prim.filename).slice(0,10))}</text>`:''}`;
 }
 async function fillCatList(){
   try{
