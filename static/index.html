@@ -142,6 +142,8 @@ input::placeholder{color:var(--tert)}
 .pill.hash{font-family:ui-monospace,Menlo,monospace;background:transparent;color:var(--muted);padding:0;border-radius:0}
 .pill.y{background:var(--warn-soft);color:var(--warn)}
 .pill.r{background:var(--err-soft);color:var(--err)}
+.pill.comp{background:var(--primary-soft);color:var(--primary-d)}
+.pill.var{background:var(--warn-soft);color:var(--warn);border:1px dashed var(--warn-border)}
 .pill.clickable{cursor:pointer}
 .pillgrp{display:flex;gap:4px;flex-wrap:wrap;margin:7px 0}
 .card-hd .meta{font-size:11px;color:var(--tert);margin-top:auto;line-height:1.5}
@@ -191,6 +193,18 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .llm-box{font-size:12px}
 .llm-box:empty{display:none}
 .round-badge{font-size:10px;color:var(--tert);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap}
+/* ---- 抽屉·所属作品关系图 ---- */
+.graph-box{border:1px solid var(--border);border-radius:10px;background:var(--bg);padding:6px 6px 2px}
+.graph-box .legend{display:flex;gap:12px;align-items:center;justify-content:center;font-size:10px;color:var(--muted);padding:2px 0 6px;flex-wrap:wrap}
+.graph-box .legend span{display:inline-flex;align-items:center;gap:4px}
+.graph-box .legend i{width:10px;height:10px;border-radius:3px;border:2px solid var(--primary);display:inline-block}
+.gmem{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--border);font-size:12px}
+.gmem:last-child{border-bottom:none}
+.gmem .gn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gmem .kv-ico{width:22px;height:22px;border-radius:6px;border:1px solid var(--border2);background:var(--card);cursor:pointer;font-size:11px;line-height:1;color:var(--muted)}
+.gmem .kv-ico:hover{border-color:var(--primary);color:var(--primary)}
+.gmem .jump{color:var(--primary);cursor:pointer;font-size:11px}
+.gmem .jump:hover{text-decoration:underline}
 .ai-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 .ai-chips .chip{border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:20px;padding:3px 10px;font-size:11px;cursor:pointer;transition:.15s}
 .ai-chips .chip:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
@@ -971,7 +985,7 @@ function drawGroupGraph(g){
   if(!svg)return;
   const ms=g.members||[];
   const prim=ms.find(m=>m.is_primary)||ms[0];
-  const CX=180,CY=88,R=92;
+  const CX=180,CY=95,R=70; // R/CY 保证顶部卫星节点（y=CY-R，半径19）不超出 viewBox 顶边
   const colors={component:'var(--primary)',variant:'var(--purple)',duplicate:'var(--err)',accessory:'var(--muted)'};
   const dash={component:'',variant:'5 4',duplicate:'2 4',accessory:'6 3'};
   const sats=ms.filter(m=>m!==prim);
