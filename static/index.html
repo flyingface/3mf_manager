@@ -200,6 +200,41 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .kw-pill{background:var(--primary-soft);color:var(--primary-d);border-radius:8px;padding:3px 9px;font-weight:600;font-size:12px}
 .danger-link{color:var(--err);cursor:pointer;font-size:11px}
 .danger-link:hover{text-decoration:underline}
+/* ---- 作品视图 / 关联建议 ---- */
+.lib-tabs .tab{border:1px solid var(--border2);background:var(--card);color:var(--muted);border-radius:20px;padding:5px 14px;font-size:12px;cursor:pointer;transition:.15s}
+.lib-tabs .tab.on{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.works-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.wcard{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow);transition:.15s}
+.wcard:hover{box-shadow:0 6px 24px rgba(16,24,40,.1)}
+.wcard .cover{position:relative;height:120px;background:var(--bg2);cursor:pointer}
+.wcard .cover img{width:100%;height:100%;object-fit:cover;display:block}
+.wcard .cover .cnt{position:absolute;right:8px;bottom:8px;background:rgba(15,23,42,.55);color:#fff;font-size:10px;padding:3px 8px;border-radius:7px}
+.wcard .cb{padding:11px 13px}
+.wcard .cn{font-weight:600;font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.wcard .stat-line{font-size:11px;color:var(--muted);display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.wcard .stat-line b{color:var(--text)}
+.strip{display:flex;gap:4px}
+.strip img,.strip .ph-t{width:34px;height:34px;border-radius:7px;object-fit:cover;border:2px solid var(--card);background:var(--bg2)}
+.strip .more{width:34px;height:34px;border-radius:7px;border:2px solid var(--card);background:var(--bg2);color:var(--muted);font-size:10px;display:flex;align-items:center;justify-content:center}
+.wcard .wf{display:flex;gap:6px;padding:9px 13px;border-top:1px solid var(--border);flex-wrap:wrap}
+.wcard .prog{height:4px;background:var(--bg2);border-radius:2px;overflow:hidden;margin-top:5px}
+.wcard .prog i{display:block;height:100%;background:var(--ok)}
+/* 关联建议 */
+.sugg{border:1px solid var(--border);border-radius:10px;margin:10px 0;overflow:hidden}
+.sugg.low{border-color:var(--warn-border)}
+.sugg-hd{display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--bg2);flex-wrap:wrap}
+.sugg-hd input[type=text]{width:220px;padding:4px 9px;font-size:12px;font-weight:600}
+.sugg-hd .sp{flex:1}
+.sugg-bd{padding:6px 12px 10px}
+.sugg-bd .mem{display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px dashed var(--border);font-size:12px}
+.sugg-bd .mem:last-child{border-bottom:none}
+.sugg-bd .mem .mn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sugg-foot{display:flex;gap:8px;align-items:center;margin-top:8px}
+.sugg-foot .hint{flex:1}
+.conf{display:inline-flex;gap:3px}
+.conf i{width:6px;height:6px;border-radius:50%;background:var(--bg2);border:1px solid var(--border2)}
+.conf i.on{background:var(--ok);border-color:var(--ok)}
+.role-star{color:var(--warn);font-size:11px}
 .th-cam svg{width:14px;height:14px}
 .viewer-head .vd svg{width:15px;height:15px}
 /* ---- 查看器（深色画布 + 缩放/平移） ---- */
@@ -429,15 +464,27 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
     <!-- ===== 模型库 ===== -->
     <section id="view-library" style="display:none">
       <div class="panel">
-        <div class="panel-h">模型库查询</div>
-        <div class="toolbar">
-          <input type="text" id="q" placeholder="搜索 文件名/标题/归档名/MakeWorld ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
-          <select id="f-cat" onchange="libPage=1;search()"><option value="">全部分类</option></select>
-          <select id="f-status" onchange="libPage=1;search()"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied" selected>已归档</option></select>
-          <button class="btn p" onclick="libPage=1;search()">查询</button>
+        <div class="toolbar" style="justify-content:space-between">
+          <div class="lib-tabs" style="margin:0">
+            <button class="tab on" id="lt-files" onclick="libTab('files')">文件视图</button>
+            <button class="tab" id="lt-works" onclick="libTab('works')">作品 <span id="worksN"></span></button>
+          </div>
+          <button class="btn p sm" id="aiGroupBtn" onclick="aiGroupScan()">✦ AI 找关联</button>
         </div>
-        <div class="hint" style="margin-bottom:8px">语义搜索请用「智能对话」。</div>
-        <div id="libWrap"></div>
+        <div id="libFilesBox">
+          <div class="toolbar">
+            <input type="text" id="q" placeholder="搜索 文件名/标题/归档名/MakeWorld ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
+            <select id="f-cat" onchange="libPage=1;search()"><option value="">全部分类</option></select>
+            <select id="f-status" onchange="libPage=1;search()"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied" selected>已归档</option></select>
+            <button class="btn p" onclick="libPage=1;search()">查询</button>
+          </div>
+          <div class="hint" style="margin-bottom:8px">语义搜索请用「智能对话」。</div>
+          <div id="libWrap"></div>
+        </div>
+        <div id="libWorksBox" style="display:none">
+          <div class="hint" style="margin-bottom:10px">作品 = 相关联文件的分组（组件/变体/重复/配件）。文件仍按目录存放，作品只是它们之间的关系。</div>
+          <div class="works-grid" id="worksWrap"></div>
+        </div>
       </div>
     </section>
 
@@ -1195,6 +1242,149 @@ async function search(){$('#libWrap').innerHTML=skeletonHTML(6);const q=$('#q').
 function paintLib(){const w=$('#libWrap');if(!libItems.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const pages=Math.max(1,Math.ceil(libTotal/libPageSize));if(libPage>pages)libPage=pages;let html=`<div class="hint" style="margin-bottom:10px">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html}
 function libGo(p){if(p<1)return;libPage=p;search()}
 
+// ===== 作品视图（图管理） =====
+let _libTab='files',_worksCache=[];
+function libTab(t){
+  _libTab=t;
+  $('#lt-files').classList.toggle('on',t==='files');
+  $('#lt-works').classList.toggle('on',t==='works');
+  $('#libFilesBox').style.display=t==='files'?'':'none';
+  $('#libWorksBox').style.display=t==='works'?'':'none';
+  if(t==='works')loadWorks();
+}
+async function loadWorks(){
+  const j=await(await fetch('/api/groups')).json();
+  _worksCache=j.groups||[];
+  $('#worksN').textContent=_worksCache.length?`(${_worksCache.length})`:'';
+  const w=$('#worksWrap');
+  if(!_worksCache.length){
+    w.innerHTML=emptyHTML('⛓','还没有作品','上传或归档文件后，点右上角「✦ AI 找关联」扫描相关文件并建立作品分组。',
+      '<button class="btn p" onclick="aiGroupScan()">✦ AI 找关联</button>');
+    return;
+  }
+  w.innerHTML=_worksCache.map(workCardHTML).join('');
+}
+function rolePill(role){
+  const map={component:'<span class="pill comp">组件</span>',variant:'<span class="pill var">变体</span>',duplicate:'<span class="pill r">重复</span>',accessory:'<span class="pill">配件</span>'};
+  return map[role]||'';
+}
+function workCardHTML(g){
+  const ms=g.members||[],st=g.stats||{};
+  const cover=(g.cover_file_id&&ms.find(m=>m.file_id===g.cover_file_id))||ms.find(m=>m.is_primary)||ms[0]||{};
+  const prim=ms.find(m=>m.is_primary)||ms[0]||{};
+  const counts={};ms.forEach(m=>{counts[m.role]=(counts[m.role]||0)+1});
+  const printed=st.printed||0,total=st.total||ms.length;
+  return `<div class="wcard">
+    <div class="cover" onclick="openWorkDetail(${g.id})">${cover.thumb?`<img src="/thumbs/${cover.thumb}">`:''}<span class="cnt">${total} 个文件</span></div>
+    <div class="cb">
+      <div class="cn" title="${esc(g.name)}">${esc(g.name)}</div>
+      <div class="stat-line">
+        ${counts.component?`<span>组件 <b>${counts.component}</b></span>`:''}
+        ${counts.variant?`<span>变体 <b>${counts.variant}</b></span>`:''}
+        ${counts.accessory?`<span>配件 <b>${counts.accessory}</b></span>`:''}
+        ${counts.duplicate?`<span>重复 <b>${counts.duplicate}</b></span>`:''}
+        <span>已打印 <b>${printed}/${total}</b></span>
+      </div>
+      <div class="prog"><i style="width:${total?Math.round(printed/total*100):0}%"></i></div>
+      <div class="strip" style="margin-top:8px">
+        ${ms.slice(0,3).map(m=>m.thumb?`<img src="/thumbs/${m.thumb}">`:'<span class="ph-t"></span>').join('')}
+        ${ms.length>3?`<span class="more">+${ms.length-3}</span>`:''}
+      </div>
+      ${prim.filename?`<div class="hint" style="margin-top:6px">主文件：${esc(prim.alias||prim.filename)}</div>`:''}
+    </div>
+    <div class="wf">
+      <button class="btn ghost sm" onclick="openWorkDetail(${g.id})">打印清单</button>
+      <button class="btn ghost sm" onclick="workArchiveAll(${g.id})">整组归档</button>
+      <button class="btn ghost sm" onclick="workDetailToggle(${g.id})">展开成员</button>
+    </div>
+    <div id="wd-${g.id}" style="display:none;padding:0 13px 11px"></div>
+  </div>`;
+}
+function workDetailToggle(id){
+  const box=$('#wd-'+id);
+  if(box.style.display==='block'){box.style.display='none';return}
+  const g=_worksCache.find(x=>x.id===id);if(!g)return;
+  box.innerHTML=g.members.map(m=>`<div class="gmem"><span class="role-star">${m.is_primary?'★':''}</span><span class="gn" title="${esc(m.filename)}">${esc(m.alias||m.filename)}</span>${rolePill(m.role)}${m.printed?'<span class="st-pill st-done">已打印</span>':''}<span class="jump" onclick="openDrawer(${m.file_id})">查看</span></div>`).join('');
+  box.style.display='block';
+}
+async function openWorkDetail(id){/* 打印清单=详情模态（批次3完善，先复用展开成员） */ workDetailToggle(id)}
+async function workArchiveAll(id){
+  const g=_worksCache.find(x=>x.id===id);if(!g)return;
+  const ids=(g.members||[]).filter(m=>m.status==='pending'&&!m.is_duplicate_of).map(m=>m.file_id);
+  if(!ids.length){toast('组内没有待整理文件');return}
+  if(!await uiConfirm({title:'整组归档', body:`将归档组「<b>${esc(g.name)}</b>」中 <b>${ids.length}</b> 个待整理文件（按各自分类路径落盘）。`, okText:'整组归档', okClass:'btn p'}))return;
+  const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});
+  const j=await r.json();
+  toast(`已归档 ${(j.results||[]).filter(x=>x.ok).length}/${ids.length} 个文件`);
+  loadWorks();loadPending();loadStats();
+}
+
+// ===== AI 找关联：扫描 → 建议确认 → 建组 =====
+let _grpSugs=[];
+async function aiGroupScan(){
+  if(_grpSugs.length){openGroupPlan();return}  // 已有未处理建议，直接打开
+  const btn=$('#aiGroupBtn');btn.disabled=true;btn.textContent='扫描中…';
+  try{
+    const r=await fetch('/api/groups/suggest-ai');
+    const j=await r.json();
+    if(!r.ok)throw new Error(j.error||'扫描失败');
+    _grpSugs=j.suggestions||[];
+    if(!_grpSugs.length){toast('未发现可关联的文件：库内没有同设计编号、同内容、同几何指纹或同词干的候选');return}
+    openGroupPlan();
+  }catch(e){toast('AI 找关联失败：'+e.message)}
+  finally{btn.disabled=false;btn.innerHTML=IC.ai+' AI 找关联'}
+}
+function grpConf(c){const lv=c==='high'?3:1;return `<span class="conf">${[1,2,3].map(i=>`<i class="${i<=lv?'on':''}"></i>`).join('')}</span>`}
+function openGroupPlan(){
+  if(!_grpSugs.length)return;
+  const n=_grpSugs.reduce((a,s)=>a+s.file_ids.length,0);
+  const body=_grpSugs.map((s,i)=>`
+    <div class="sugg ${s.confidence==='low'?'low':''}" id="gsugg-${i}">
+      <div class="sugg-hd">
+        <input type="checkbox" ${s.confidence==='high'?'checked':''} onchange="grpSugToggle(${i},this.checked)">
+        <span class="hint">作品名</span><input type="text" id="gsname-${i}" value="${esc(s.name||'')}" placeholder="命名…">
+        ${grpConf(s.confidence)}
+        ${s.ai?'<span class="pill">✦ AI 判型</span>':''}
+        <span class="sp"></span>
+        <span class="hint">${s.file_ids.length} 个文件</span>
+        ${s.already_grouped?`<span class="hint">已分组 ${s.already_grouped}</span>`:''}
+      </div>
+      <div class="sugg-bd">
+        ${s.files.map(f=>`<div class="mem"><img class="thumb sm" src="/thumbs/${f.thumb||''}" onerror="this.removeAttribute('src')"><span class="mn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span><span class="pill ${f.status==='pending'?'y':'cat'}">${f.status==='pending'?'待整理':'已归档'}</span></div>`).join('')}
+        <div class="sugg-foot"><span class="hint">${esc((s.signals||[]).join(' · '))}</span><button class="btn ghost sm" onclick="grpSugDrop(${i})">忽略</button></div>
+      </div>
+    </div>`).join('');
+  openModal(`✦ 关联建议 <span class="hint" style="font-weight:400">${_grpSugs.length} 组 · ${n} 个文件</span>`,
+    `<div style="max-height:60vh;overflow-y:auto">${body}</div>
+     <div class="modal-actions">
+       <span class="hint" style="flex:1;text-align:left">确认后仅建立作品分组，不移动任何文件</span>
+       <button class="btn ghost" onclick="closeModal()">取消</button>
+       <button class="btn p" onclick="grpPlanApply()">创建分组</button>
+     </div>`);
+}
+function grpSugToggle(i,on){const s=_grpSugs[i];if(s)s._checked=on}
+function grpSugDrop(i){_grpSugs.splice(i,1);closeModal();if(_grpSugs.length)openGroupPlan();else toast('已忽略全部建议')}
+async function grpPlanApply(){
+  const items=[];
+  _grpSugs.forEach((s,i)=>{
+    const cb=document.querySelector(`#gsugg-${i} input[type=checkbox]`);
+    if(!cb||!cb.checked)return;
+    const name=($('#gsname-'+i)||{}).value?.trim()||s.name;
+    items.push({name,file_ids:s.file_ids,roles:s.roles||{},primary_id:s.primary_id});
+  });
+  if(!items.length){toast('未勾选任何建议');return}
+  let ok=0;
+  for(const it of items){
+    const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({create:it})});
+    if(r.ok)ok++;
+  }
+  closeModal();
+  _grpSugs=[];
+  toast(`已创建 ${ok} 个作品分组（文件位置未移动）`);
+  if(_libTab==='works')loadWorks();
+  else{const w=$('#worksN');fetch('/api/groups').then(r=>r.json()).then(j=>{w.textContent=(j.groups||[]).length?`(${(j.groups||[]).length})`:''})}
+}
+
 // ===== 对话 =====
 let _chatRes={};      // id -> 文件（结果面板数据）
 let _chatActionSeq=0; // 对话内 action 确认条的键
@@ -1533,7 +1723,7 @@ function inline(s){
 async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><div class="n">${j.total}</div><div class="l">全部</div></div><div class="stat"><div class="n">${j.pending}</div><div class="l">待整理</div></div><div class="stat"><div class="n">${j.applied}</div><div class="l">已归档</div></div>`;const bd=$('#navbd');if(bd)bd.style.display=j.pending>0?'block':'none'}
 
 // init
-(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
+(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';const ag=$('#aiGroupBtn');if(ag)ag.innerHTML=IC.ai+' AI 找关联';fetch('/api/groups').then(r=>r.json()).then(j=>{const n=(j.groups||[]).length;$('#worksN').textContent=n?`(${n})`:''}).catch(()=>{});await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
 </script>
 </body>
 </html>
