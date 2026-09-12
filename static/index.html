@@ -308,15 +308,21 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 /* ---- toast ---- */
 .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:#1c2330;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;z-index:300;opacity:0;transition:.25s;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-/* ---- 批量 AI 整理 ---- */
-.batch-mask{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:260;backdrop-filter:blur(2px)}
-.batch-mask.show{display:flex}
-.batch-card{width:460px;max-width:92vw;background:var(--card);border-radius:var(--r-lg);box-shadow:0 20px 60px rgba(0,0,0,.35);padding:22px}
-.batch-head{display:flex;align-items:center;gap:10px}
-.batch-head .spin{width:26px;height:26px;border-radius:50%;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex:none;animation:aipulse 1.6s ease-in-out infinite}
+/* ---- 批量 AI 整理（右下角悬浮组件，后台执行不阻塞） ---- */
+.batch-fab{position:fixed;right:18px;bottom:18px;width:260px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 28px rgba(16,24,40,.2);padding:10px 12px;z-index:220;font-size:12px}
+.batch-fab.done{border-color:var(--ok-border)}
+.bf-bar{height:5px;background:var(--bg2);border-radius:3px;overflow:hidden;margin-bottom:8px}
+.bf-fill{height:100%;width:0;background:var(--grad);border-radius:3px;transition:width .25s}
+.bf-row{display:flex;align-items:center;gap:8px;cursor:default}
+.bf-ico{width:18px;height:18px;border-radius:50%;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;flex:none;animation:aipulse 1.6s ease-in-out infinite}
+.batch-fab.done .bf-ico{animation:none;background:var(--ok)}
+.batch-fab.done .bf-row{cursor:pointer}
+.bf-txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.bf-btn{border:none;background:var(--bg2);color:var(--muted);width:20px;height:20px;border-radius:6px;cursor:pointer;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;transition:.15s}
+.bf-btn:hover{background:var(--primary-soft);color:var(--primary)}
+.bf-detail{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
+.bf-detail .hint{margin-bottom:4px;word-break:break-all}
 @keyframes aipulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
-.batch-head h3{font-size:15px;font-weight:600;flex:1}
-.batch-cur{font-size:12px;color:var(--muted);background:var(--bg2);border-radius:8px;padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* ---- AI 整理计划预览 ---- */
 .plan-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;justify-content:center;align-items:flex-start;z-index:255;backdrop-filter:blur(2px);overflow-y:auto;padding:28px 16px}
 .plan-mask.show{display:flex}
@@ -532,13 +538,17 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
   </div>
 </div>
 
-<div class="batch-mask" id="batchMask">
-  <div class="batch-card">
-    <div class="batch-head"><div class="spin">✦</div><h3>AI 正在整理</h3><span class="pill y" id="batchPct">0 / 0 个</span></div>
-    <div class="upbar" style="margin-top:14px"><div class="upbar-fill" id="batchBar"></div></div>
-    <div class="hint" id="batchMeta" style="margin-top:8px"></div>
-    <div id="batchCur" style="margin-top:10px"></div>
-    <div class="modal-actions" style="margin-top:14px"><button class="btn dg sm" onclick="aiBatchCancel()">取消</button></div>
+<div class="batch-fab" id="batchFab" style="display:none">
+  <div class="bf-bar"><div class="bf-fill" id="bfFill"></div></div>
+  <div class="bf-row" id="bfRow">
+    <span class="bf-ico">✦</span>
+    <span class="bf-txt" id="bfTxt">AI 整理 0/0</span>
+    <button class="bf-btn" id="bfToggle" title="展开/收起详情" onclick="event.stopPropagation();batchFabToggle()">▾</button>
+    <button class="bf-btn" id="bfClose" title="取消" onclick="event.stopPropagation();fabClose()">✕</button>
+  </div>
+  <div class="bf-detail" id="bfDetail" style="display:none">
+    <div class="hint" id="bfCur"></div>
+    <div class="hint" id="bfMeta"></div>
   </div>
 </div>
 
@@ -866,8 +876,8 @@ function renderPending(files){cacheFiles(files);window._pendingIds=files.map(f=>
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');closeDrawer();loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const all=j.files;if(!all.length){toast('无待整理');return}const archivable=all.filter(f=>!f.is_duplicate);const skipped=all.length-archivable.length;const ids=archivable.map(f=>f.id);const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();let msg=`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`;if(skipped>0)msg+=`（跳过 ${skipped} 个重复文件）`;toast(msg);loadPending();if(typeof search==='function')search()}
 
-// ===== 批量 AI 整理：SSE 进度 → 计划预览 → 确认执行 =====
-let _aiBatchAbort=null,_planItems=[];
+// ===== 批量 AI 整理：后台执行（右下角悬浮组件，不阻塞操作） =====
+let _aiBatchAbort=null,_planItems=[],_batchDone=null,_batchState='idle';
 async function ensureLLMConfigured(){
   const j=await(await fetch('/api/config')).json();
   if(j.llm&&j.llm.configured)return true;
@@ -875,14 +885,23 @@ async function ensureLLMConfigured(){
   return false;
 }
 async function aiBatchStart(){
+  if(_batchState==='running'){toast('已有 AI 整理在进行中（右下角）');return}
   const ids=window._pendingIds||[];
   if(!ids.length){toast('无待整理文件');return}
   if(!await ensureLLMConfigured())return;
-  $('#batchMask').classList.add('show');
+  _batchDone=null;_batchState='running';
+  const fab=$('#batchFab');fab.classList.remove('done');fab.style.display='block';
+  $('#bfDetail').style.display='none';$('#bfToggle').textContent='▾';$('#bfClose').title='取消';
+  const setP=(d,t,s,cur)=>{
+    $('#bfFill').style.width=(t?Math.round(d/t*100):0)+'%';
+    $('#bfTxt').textContent=`AI 整理 ${d}/${t}`;
+    $('#bfCur').textContent=cur?`正在处理：${cur}`:'';
+    $('#bfMeta').textContent=s?`已跳过（规则命中）${s} 个文件`:'';
+  };
+  setP(0,ids.length,0,'');
   _aiBatchAbort=new AbortController();
   const results=[];let skipped=0,cancelled=false;
-  const bar=$('#batchBar'),pct=$('#batchPct'),meta=$('#batchMeta'),cur=$('#batchCur');
-  const setP=(d,t)=>{bar.style.width=(t?Math.round(d/t*100):0)+'%';pct.textContent=`${d} / ${t} 个`};
+  let lastFile='';
   try{
     const r=await fetch('/api/llm-batch-classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids}),signal:_aiBatchAbort.signal});
     if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'请求失败')}
@@ -894,27 +913,55 @@ async function aiBatchStart(){
         const chunk=buf.slice(0,i);buf=buf.slice(i+2);
         const line=chunk.split('\n').find(l=>l.startsWith('data: '));if(!line)continue;
         const ev=JSON.parse(line.slice(6));
-        if(ev.type==='skip'){skipped++;meta.textContent=`已跳过（规则命中）${skipped} 个文件`}
+        if(ev.type==='skip'){skipped++}
         else if(ev.type==='progress'){
           if(ev.error){results.push({id:ev.id,filename:ev.filename,error:ev.error,checked:false})}
           else{results.push({id:ev.id,filename:ev.filename,category:ev.category,alias:ev.alias,reason:ev.reason,confidence:ev.confidence,is_new:ev.is_new,thumb:ev.thumb,checked:ev.confidence==='high'})}
-          setP(ev.done,ev.total);
-          cur.textContent=ev.filename?`正在处理：${ev.filename}`:'';
+          lastFile=ev.filename||'';
         }
-        else if(ev.type==='done')setP(ev.total,ev.total);
         else if(ev.type==='error')throw new Error(ev.error);
+        setP(ev.done||results.length+skipped,ids.length,skipped,lastFile);
       }
     }
   }catch(e){
     if(e.name==='AbortError')cancelled=true;
-    else{$('#batchMask').classList.remove('show');toast('AI 整理失败：'+e.message);return}
+    else{_batchState='idle';$('#batchFab').style.display='none';toast('AI 整理失败：'+e.message);return}
   }
-  $('#batchMask').classList.remove('show');
-  if(cancelled&&!results.length){toast('已取消');return}
-  if(!results.length){toast(`规则已全部命中，无需 AI 参与（跳过 ${skipped} 个）`);loadPending();return}
-  openPlanReview(results,skipped,cancelled);
+  _batchState='done';
+  _batchDone={results,skipped,cancelled};
+  fabDone(results.length,skipped,cancelled);
+  if(results.length)toast(`AI 整理完成，${results.length} 个文件待确认`,{btnText:'查看计划',onBtn:openPlanFromBatch});
+}
+function fabDone(n,skipped,cancelled){
+  const fab=$('#batchFab');fab.classList.add('done');
+  $('#bfFill').style.width='100%';
+  const suffix=cancelled?'（已暂停）':'';
+  $('#bfTxt').textContent=n?`整理完成 · 查看计划 (${n})${suffix}`:`整理完成 · 规则全部命中（${skipped}）${suffix}`;
+  $('#bfToggle').style.display='none';
+  $('#bfCur').textContent='';
+  $('#bfMeta').textContent=skipped?`规则已命中 ${skipped} 个文件`:'';
+}
+function batchFabToggle(){
+  const d=$('#bfDetail');
+  d.style.display=d.style.display==='none'?'block':'none';
+  $('#bfToggle').textContent=d.style.display==='none'?'▾':'▴';
+}
+// 主行点击：执行中=展开/收起详情；完成=打开计划预览
+$('#bfRow').addEventListener('click',()=>{
+  if(_batchState==='done')openPlanFromBatch();
+  else batchFabToggle();
+});
+function fabClose(){
+  if(_batchState==='running'){aiBatchCancel();return}
+  _batchDone=null;_batchState='idle';
+  $('#batchFab').style.display='none';
 }
 function aiBatchCancel(){if(_aiBatchAbort)_aiBatchAbort.abort()}
+// 从悬浮组件打开计划预览（组件保留，计划关闭后可再次打开或 ✕ 丢弃）
+function openPlanFromBatch(){
+  const b=_batchDone;if(!b)return;
+  openPlanReview(b.results,b.skipped,b.cancelled);
+}
 function planConf(c){const lv=c==='high'?3:c==='low'?1:2;return `<span class="conf-dots">${[1,2,3].map(i=>`<i class="${i<=lv?'on':''}"></i>`).join('')}</span>`}
 function planNewCatsAgg(){const m={};_planItems.forEach(it=>{if(it.is_new&&it.category&&!it.error)m[it.category]=(m[it.category]||0)+1});return m}
 function openPlanReview(results,skipped,cancelled){
@@ -1002,6 +1049,8 @@ async function planApply(){
   const j=await r.json();
   if(!r.ok){toast(j.error||'应用失败');return}
   planClose();
+  _batchDone=null;_batchState='idle';
+  $('#batchFab').style.display='none';
   toast(`已归档 ${j.applied.length} 个文件`+(j.failed.length?`，失败 ${j.failed.length}`:''));
   loadPending();if(typeof search==='function')search();
 }
