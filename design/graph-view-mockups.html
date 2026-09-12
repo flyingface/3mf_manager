@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>作品关联 · 图管理效果图 — 3MF Manager</title>
+<link rel="icon" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E%3Crect width="32" height="32" rx="7" fill="%237b4ff0"/%3E%3Ccircle cx="11" cy="11" r="4" fill="none" stroke="%23fff" stroke-width="2"/%3E%3Ccircle cx="22" cy="20" r="4" fill="none" stroke="%23fff" stroke-width="2"/%3E%3Cpath d="M14 14l5 3" stroke="%23fff" stroke-width="2"/%3E%3C/svg%3E'>
+<style>
+:root{
+  --bg:#f6f7f9;--bg2:#eef0f4;--card:#ffffff;--border:#e4e7ee;--border2:#cfd4df;
+  --text:#16181d;--muted:#6a7180;--tert:#98a0b0;
+  --primary:#3b6df0;--primary-d:#2b56c8;--primary-soft:#e9effd;
+  --ok:#1a9a55;--ok-soft:#e6f6ee;--ok-border:#bfe3d0;
+  --warn:#c7781c;--warn-soft:#fdf3e2;--warn-border:#f0d9a8;
+  --err:#d64545;--err-soft:#fcecec;--err-border:#f2bcbc;
+  --purple:#7b4ff0;--purple-soft:#f1ebfd;
+  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);
+  --r-sm:8px;--r-md:12px;--r-lg:16px;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
+}
+:root.dark{
+  --bg:#0f1216;--bg2:#181d25;--card:#171c24;--border:#252c38;--border2:#37404f;
+  --text:#e6e9ef;--muted:#9aa3b2;--tert:#6b7484;
+  --primary:#5b86f5;--primary-d:#79a0ff;--primary-soft:#1d2740;
+  --ok:#35b977;--ok-soft:#122a1d;--ok-border:#204831;
+  --warn:#e2a34d;--warn-soft:#2f2410;--warn-border:#4e3e1d;
+  --err:#e26060;--err-soft:#341b1b;--err-border:#5c2e2e;
+  --purple:#9a6ff5;--purple-soft:#241a3d;
+  --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 20px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+::selection{background:var(--primary-soft)}
+
+/* ===== 工作台 ===== */
+.work{display:flex;min-height:100vh}
+.wk-side{width:236px;flex-shrink:0;background:var(--card);border-right:1px solid var(--border);padding:18px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.wk-logo{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.wk-logo .cube{width:34px;height:34px;border-radius:9px;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center}
+.wk-logo b{font-size:14px;display:block}
+.wk-logo span{display:block;font-size:10px;color:var(--muted);font-weight:400}
+.wk-nav{display:flex;flex-direction:column;gap:3px}
+.wk-nav button{display:flex;align-items:center;gap:9px;border:none;background:transparent;text-align:left;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13px;color:var(--muted);transition:.15s;width:100%}
+.wk-nav button .no{width:20px;height:20px;border-radius:6px;background:var(--bg2);color:var(--muted);font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.wk-nav button:hover{background:var(--bg2);color:var(--text)}
+.wk-nav button.on{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.wk-nav button.on .no{background:var(--grad);color:#fff}
+.wk-foot{margin-top:auto;padding:10px 8px;font-size:10px;color:var(--tert);line-height:1.6}
+.wk-main{flex:1;min-width:0;padding:22px 26px 60px}
+.wk-head{margin-bottom:16px}
+.wk-head h1{font-size:19px;font-weight:600;display:flex;align-items:center;gap:10px}
+.wk-head p{font-size:12px;color:var(--muted);margin-top:4px}
+.stage{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
+.stage-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
+.stage-bar .dots{display:flex;gap:5px}
+.stage-bar .dots i{width:9px;height:9px;border-radius:50%;background:var(--bg2);border:1px solid var(--border)}
+.stage-body{position:relative;min-height:660px;background:var(--bg);overflow:hidden}
+.scene{display:none;padding:22px}
+.scene.on{display:block}
+.scene-note{margin:0 0 16px;font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px}
+.scene-note b{color:var(--text)}
+.callout{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:50%;background:var(--grad);color:#fff;font-size:9px;font-weight:700;vertical-align:1px}
+
+/* ===== 通用组件 ===== */
+.btn{border:none;border-radius:8px;padding:9px 15px;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.15s;white-space:nowrap}
+.btn.p{background:var(--primary);color:#fff}.btn.p:hover{background:var(--primary-d)}
+.btn.ok{background:var(--ok);color:#fff}
+.btn.ghost{background:var(--card);border:1px solid var(--border2);color:var(--text)}
+.btn.sm{padding:5px 11px;font-size:12px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--primary-soft);color:var(--primary-d)}
+.pill.cat{background:var(--ok-soft);color:var(--ok)}
+.pill.y{background:var(--warn-soft);color:var(--warn)}
+.pill.r{background:var(--err-soft);color:var(--err)}
+.pill.comp{background:var(--primary-soft);color:var(--primary-d)}
+.pill.var{background:var(--purple-soft);color:var(--purple)}
+input[type=text]{background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font-size:13px;color:var(--text);outline:none;width:100%}
+input[type=text]:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,109,240,.12)}
+input[type=checkbox]{width:14px;height:14px;accent-color:var(--primary);cursor:pointer}
+.hint{font-size:12px;color:var(--muted)}
+.thumb{width:56px;height:56px;border-radius:9px;object-fit:cover;background:linear-gradient(135deg,#dbe4f8,#e8dcf6);flex-shrink:0;display:block}
+.thumb.sm{width:36px;height:36px;border-radius:7px}
+.ai-grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:600}
+.conf{display:inline-flex;gap:2px}
+.conf i{width:6px;height:6px;border-radius:50%;background:var(--bg2);border:1px solid var(--border2)}
+.conf i.on{background:var(--ok);border-color:var(--ok)}
+
+/* ===== 场景1：关联建议 ===== */
+.s1-bg{position:absolute;inset:0;filter:saturate(.5);opacity:.45;pointer-events:none;padding:20px}
+.s1-bg .ph{height:120px;border:1.5px dashed var(--border2);border-radius:12px;margin-bottom:14px}
+.s1-bg .row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.s1-bg .cd{height:80px;background:var(--card);border:1px solid var(--border);border-radius:12px}
+.plan-wrap{position:relative;z-index:2;max-width:860px;margin:0 auto}
+.sugg-head{display:flex;align-items:center;gap:10px;padding:13px 16px;background:var(--card);border:1px solid var(--border);border-bottom:none;border-radius:var(--r-md) var(--r-md) 0 0;font-size:14px;font-weight:600}
+.sugg-head .hint{font-weight:400;flex:1}
+.sugg-list{background:var(--card);border:1px solid var(--border);border-top:none;padding:6px 14px}
+.sugg{border:1px solid var(--border);border-radius:10px;margin:10px 0;overflow:hidden}
+.sugg.on{border-color:var(--primary)}
+.sugg.low{border-color:var(--warn-border)}
+.sugg-hd{display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--bg2)}
+.sugg-hd .gname{font-weight:600;font-size:13px}
+.sugg-hd input[type=text]{width:220px;padding:4px 9px;font-size:12px;font-weight:600}
+.sugg-hd .sp{flex:1}
+.sugg-bd{padding:6px 12px 10px}
+.mem{display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px dashed var(--border);font-size:12px}
+.mem:last-child{border-bottom:none}
+.mem .mn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mem .role-star{font-size:10px;color:var(--warn)}
+.sugg-foot{display:flex;gap:8px;align-items:center;margin-top:8px}
+.sugg-foot .hint{flex:1}
+.plan-actions{display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--r-md) var(--r-md);margin-bottom:14px}
+.plan-actions .hint{flex:1}
+
+/* ===== 场景2：作品视图 ===== */
+.lib-tabs{display:flex;gap:6px;margin-bottom:14px}
+.lib-tabs .tab{border:1px solid var(--border2);background:var(--card);color:var(--muted);border-radius:20px;padding:5px 14px;font-size:12px;cursor:pointer}
+.lib-tabs .tab.on{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.works-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.wcard{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow);transition:.15s}
+.wcard:hover{box-shadow:0 6px 24px rgba(16,24,40,.1);transform:translateY(-1px)}
+.wcard .cover{position:relative;height:130px;background:linear-gradient(135deg,#dbe4f8,#e8dcf6)}
+.wcard .cover img{width:100%;height:100%;object-fit:cover;display:block}
+.wcard .cover .cnt{position:absolute;right:8px;bottom:8px;background:rgba(15,23,42,.55);color:#fff;font-size:10px;padding:3px 8px;border-radius:7px}
+.wcard .cb{padding:11px 13px}
+.wcard .cn{font-weight:600;font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.wcard .stat-line{font-size:11px;color:var(--muted);display:flex;gap:10px;margin-bottom:8px}
+.wcard .stat-line b{color:var(--text)}
+.strip{display:flex;gap:4px}
+.strip img,.strip .ph-t{width:34px;height:34px;border-radius:7px;object-fit:cover;border:2px solid var(--card);background:var(--bg2)}
+.strip .more{width:34px;height:34px;border-radius:7px;border:2px solid var(--card);background:var(--bg2);color:var(--muted);font-size:10px;display:flex;align-items:center;justify-content:center}
+.wcard .wf{display:flex;gap:6px;padding:9px 13px;border-top:1px solid var(--border)}
+.prog{height:4px;background:var(--bg2);border-radius:2px;overflow:hidden;flex:1;margin-top:5px}
+.prog i{display:block;height:100%;background:var(--ok)}
+
+/* ===== 场景3：抽屉组信息 + 关系小图 ===== */
+.dr3{max-width:430px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
+.dr3 .dh{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px}
+.dr3 .dh .hint{font-weight:400}
+.dr3 .dh .sp{flex:1}
+.dr3 .db{padding:16px}
+.dr3 .sec{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--border)}
+.dr3 .sec:first-child{margin-top:0;padding-top:0;border-top:none}
+.graph-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-md);padding:10px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:3px;margin-right:4px}
+.gmem{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12px;border-bottom:1px dashed var(--border)}
+.gmem:last-child{border-bottom:none}
+.gmem .gn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gmem .jump{color:var(--primary);cursor:pointer;font-size:11px}
+
+/* ===== 场景4：打印清单 ===== */
+.checklist{max-width:520px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
+.cl-hd{padding:13px 16px;border-bottom:1px solid var(--border)}
+.cl-hd .t{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cl-hd .meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted)}
+.cl-hd .meta .prog{margin:0}
+.cl-rows{padding:6px 16px}
+.cl-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px}
+.cl-row:last-child{border-bottom:none}
+.cl-row .cn2{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cl-row.done .cn2{color:var(--tert);text-decoration:line-through}
+.st-pill{font-size:10px;padding:2px 8px;border-radius:10px}
+.st-done{background:var(--ok-soft);color:var(--ok)}
+.st-todo{background:var(--warn-soft);color:var(--warn)}
+.cl-ft{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<div class="work">
+  <aside class="wk-side">
+    <div class="wk-logo"><div class="cube">⛓</div><div><b>作品关联 · 图管理</b><span>交互效果图 · 3MF Manager</span></div></div>
+    <nav class="wk-nav" id="wkNav">
+      <button data-s="s1" class="on"><span class="no">1</span>AI 找关联 · 建议确认</button>
+      <button data-s="s2"><span class="no">2</span>模型库 · 作品视图</button>
+      <button data-s="s3"><span class="no">3</span>详情抽屉 · 组信息与关系小图</button>
+      <button data-s="s4"><span class="no">4</span>组操作 · 打印清单</button>
+    </nav>
+    <div class="wk-foot">图 = 目录之上的关系层：<br>目录管存放，图管关系。<br>关系四类：组件 / 变体 / 重复 / 配件。<br>信号：design_id · 几何指纹 · 词干聚类 + LLM 判型。</div>
+  </aside>
+  <main class="wk-main">
+    <div class="wk-head">
+      <h1><span id="sceneTitle">AI 找关联 · 建议确认</span><span style="margin-left:auto"><button class="btn ghost sm" onclick="toggleTheme()">◐ 主题</button></span></h1>
+      <p id="sceneDesc">AI 扫描全库，按 design_id / 几何指纹 / 词干聚类产出分组建议；AI 只提议，确认权在你。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-bar"><span class="dots"><i></i><i></i><i></i></span><span id="sceneCrumb">仪表盘 · 关联建议确认</span></div>
+      <div class="stage-body">
+
+        <!-- ===== 场景1 ===== -->
+        <section class="scene on" id="s1">
+          <div class="s1-bg" aria-hidden="true">
+            <div class="ph"></div>
+            <div class="row"><div class="cd"></div><div class="cd"></div><div class="cd"></div></div>
+          </div>
+          <div style="position:relative;z-index:2;padding-top:8px">
+            <div class="scene-note" style="margin-bottom:14px"><b>数据来源：</b><span class="callout">1</span> DesignModelId 相同 <span class="callout">2</span> 几何指纹相同（缩放不改拓扑）<span class="callout">3</span> 文件名词干聚类；三路信号汇成候选簇后，<b>LLM 只做簇内判型与命名</b>（调用少、准确率高）。</div>
+            <div class="plan-wrap">
+              <div class="sugg-head">✦ 关联建议 <span class="hint">发现 3 组可能相关的文件 · 基于设计编号 / 几何指纹 / 文件名词干</span><span class="pill y">2 个新作品</span></div>
+              <div class="sugg-list">
+                <div class="sugg on">
+                  <div class="sugg-hd">
+                    <input type="checkbox" checked>
+                    <span class="hint">作品名</span><input type="text" value="RX78-2 高达套件">
+                    <span class="conf"><i class="on"></i><i class="on"></i><i class="on"></i></span>
+                    <span class="sp"></span><span class="pill">3 个文件</span>
+                  </div>
+                  <div class="sugg-bd">
+                    <div class="mem"><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" onerror="this.removeAttribute('src')"><span class="mn">RX78_身体_主体.3mf</span><span class="pill comp">组件 · 主文件</span><span class="role-star">★</span></div>
+                    <div class="mem"><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786283259_8_37cfb5f7.png" onerror="this.removeAttribute('src')"><span class="mn">高达武器包_v2.3mf</span><span class="pill comp">组件</span></div>
+                    <div class="mem"><span class="thumb sm"></span><span class="mn">RX78_150%.3mf</span><span class="pill var">变体（尺寸）</span></div>
+                    <div class="sugg-foot"><span class="hint"><span class="callout">4</span> 主文件=打印清单的锚点；角色可逐行改</span><button class="btn ghost sm">拆分</button><button class="btn ghost sm">忽略</button></div>
+                  </div>
+                </div>
+                <div class="sugg on">
+                  <div class="sugg-hd">
+                    <input type="checkbox" checked>
+                    <span class="hint">作品名</span><input type="text" value="邓紫棋浮雕折扇">
+                    <span class="conf"><i class="on"></i><i class="on"></i><i class="on"></i></span>
+                    <span class="sp"></span><span class="pill">2 个文件</span><span class="pill r">重复 ×1</span>
+                  </div>
+                  <div class="sugg-bd">
+                    <div class="mem"><span class="thumb sm"></span><span class="mn">d邓紫棋-最新.3mf</span><span class="pill comp">主文件</span><span class="role-star">★</span></div>
+                    <div class="mem"><span class="thumb sm"></span><span class="mn">折扇旧版.3mf</span><span class="pill r">重复（SHA256 相同）</span></div>
+                  </div>
+                </div>
+                <div class="sugg low">
+                  <div class="sugg-hd">
+                    <input type="checkbox">
+                    <span class="hint">作品名</span><input type="text" value="unnamed_0xx 系列？" placeholder="命名…">
+                    <span class="conf"><i class="on"></i><i></i><i></i></span>
+                    <span class="sp"></span><span class="pill y">低置信 · 仅供参考</span>
+                  </div>
+                  <div class="sugg-bd">
+                    <div class="mem"><span class="thumb sm"></span><span class="mn">unnamed_042.3mf</span><span class="pill y">词干相似，语义存疑</span></div>
+                    <div class="mem"><span class="thumb sm"></span><span class="mn">unnamed_043.3mf</span><span class="pill y">词干相似，语义存疑</span></div>
+                    <div class="sugg-foot"><span class="hint">低置信默认不勾选；也可「忽略」让 AI 下次不再推荐</span><button class="btn ghost sm">合并到上方组…</button></div>
+                  </div>
+                </div>
+              </div>
+              <div class="plan-actions">
+                <span class="hint"><span class="callout">5</span> 确认后仅建组，不移动任何文件——目录保持原样</span>
+                <span style="flex:1"></span>
+                <button class="btn ghost sm">全选</button>
+                <button class="btn ghost sm">取消</button>
+                <button class="btn p">创建 2 个作品并关联（5 个文件）</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== 场景2 ===== -->
+        <section class="scene" id="s2">
+          <div class="scene-note"><b>作品视图：</b>模型库新增「作品」浏览维度 <span class="callout">6</span>——组聚合为一张卡（封面/成员条/打印进度）；文件视图保持不变，目录也保持不变。卡片上的徽章一眼看出构成。</div>
+          <div class="lib-tabs">
+            <button class="tab">文件视图</button>
+            <button class="tab on">作品视图 (2)</button>
+            <button class="tab">全部</button>
+            <span style="flex:1"></span>
+            <button class="btn p sm">✦ AI 找关联</button>
+          </div>
+          <div class="works-grid">
+            <div class="wcard">
+              <div class="cover"><img src="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" onerror="this.removeAttribute('src')"><span class="cnt">4 个文件</span></div>
+              <div class="cb">
+                <div class="cn">RX78-2 高达套件 <span class="pill comp">套件</span></div>
+                <div class="stat-line"><span>组件 <b>2</b></span><span>变体 <b>1</b></span><span>重复 <b>1</b></span><span>已打印 <b>1/3</b></span></div>
+                <div class="prog"><i style="width:33%"></i></div>
+                <div class="strip" style="margin-top:8px">
+                  <img src="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" onerror="this.removeAttribute('src')">
+                  <img src="http://127.0.0.1:8000/thumbs/p1786283259_8_37cfb5f7.png" onerror="this.removeAttribute('src')">
+                  <span class="ph-t"></span>
+                  <span class="more">+1</span>
+                </div>
+              </div>
+              <div class="wf"><button class="btn ghost sm">打印清单</button><button class="btn ghost sm">整组归档</button><button class="btn ghost sm">展开成员</button></div>
+            </div>
+            <div class="wcard">
+              <div class="cover"><img src="http://127.0.0.1:8000/thumbs/p1786283283_1_ad453c25.png" onerror="this.removeAttribute('src')"><span class="cnt">2 个文件</span></div>
+              <div class="cb">
+                <div class="cn">邓紫棋浮雕折扇 <span class="pill var">单模型</span></div>
+                <div class="stat-line"><span>组件 <b>1</b></span><span>重复 <b>1</b></span><span>已打印 <b>0/1</b></span></div>
+                <div class="prog"><i style="width:0"></i></div>
+                <div class="strip" style="margin-top:8px">
+                  <span class="ph-t"></span><span class="ph-t"></span>
+                </div>
+              </div>
+              <div class="wf"><button class="btn ghost sm">打印清单</button><button class="btn ghost sm">清理重复</button><button class="btn ghost sm">展开成员</button></div>
+            </div>
+          </div>
+          <div class="scene-note" style="margin-top:14px"><b>注释：</b><span class="callout">6</span> 「清理重复」= 对重复成员一键移入回收站；「整组归档」把组内待整理成员一并归档。封面取主文件缩略图，可换。</div>
+        </section>
+
+        <!-- ===== 场景3 ===== -->
+        <section class="scene" id="s3">
+          <div class="scene-note"><b>抽屉里的关系上下文：</b>打开任一成员，抽屉显示所属作品 <span class="callout">7</span>、静态关系小图 <span class="callout">8</span>（中心=主文件，连线颜色=关系类型）、成员清单可跳转 <span class="callout">9</span>。不做全库画布——分组卡片 + 小图已覆盖绝大多数场景。</div>
+          <div class="dr3">
+            <div class="dh"><span class="ai-grad-text" style="font-size:14px">高达武器包_v2.3mf</span><span class="pill comp">组件</span><span class="sp"></span><span class="hint">✕</span></div>
+            <div class="db">
+              <div class="sec">所属作品</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:2px">RX78-2 高达套件</div>
+              <div class="hint">我在组中是 <span class="pill comp" style="margin:0 4px">组件</span>，主文件为「RX78_身体_主体」</div>
+              <div class="graph-box" style="margin-top:10px">
+                <svg viewBox="0 0 380 190" width="100%" height="170">
+                  <defs>
+                    <clipPath id="c1"><circle cx="190" cy="88" r="24"/></clipPath>
+                    <clipPath id="c2"><circle cx="70" cy="40" r="18"/></clipPath>
+                    <clipPath id="c3"><circle cx="70" cy="140" r="18"/></clipPath>
+                    <clipPath id="c4"><circle cx="310" cy="40" r="18"/></clipPath>
+                    <clipPath id="c5"><circle cx="310" cy="140" r="18"/></clipPath>
+                  </defs>
+                  <line x1="190" y1="88" x2="70" y2="40" stroke="#3b6df0" stroke-width="2"/>
+                  <line x1="190" y1="88" x2="70" y2="140" stroke="#3b6df0" stroke-width="2"/>
+                  <line x1="190" y1="88" x2="310" y2="40" stroke="#7b4ff0" stroke-width="2" stroke-dasharray="5 4"/>
+                  <line x1="190" y1="88" x2="310" y2="140" stroke="#d64545" stroke-width="2" stroke-dasharray="2 4"/>
+                  <circle cx="190" cy="88" r="26" fill="none" stroke="#3b6df0" stroke-width="2"/>
+                  <image href="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" x="166" y="64" width="48" height="48" clip-path="url(#c1)" preserveAspectRatio="xMidYMid slice"/>
+                  <circle cx="70" cy="40" r="20" fill="none" stroke="#3b6df0" stroke-width="1.6"/>
+                  <image href="http://127.0.0.1:8000/thumbs/p1786283259_8_37cfb5f7.png" x="52" y="22" width="36" height="36" clip-path="url(#c2)" preserveAspectRatio="xMidYMid slice"/>
+                  <circle cx="70" cy="140" r="20" fill="none" stroke="#3b6df0" stroke-width="1.6"/>
+                  <circle cx="70" cy="140" r="20" fill="var(--bg2)"/>
+                  <text x="70" y="145" text-anchor="middle" font-size="9" fill="var(--muted)">无图</text>
+                  <circle cx="310" cy="40" r="20" fill="none" stroke="#7b4ff0" stroke-width="1.6" stroke-dasharray="4 3"/>
+                  <text x="310" y="44" text-anchor="middle" font-size="8" fill="var(--muted)">150%</text>
+                  <circle cx="310" cy="140" r="20" fill="none" stroke="#d64545" stroke-width="1.6" stroke-dasharray="2 3"/>
+                  <text x="310" y="144" text-anchor="middle" font-size="8" fill="var(--muted)">dup</text>
+                  <text x="190" y="130" text-anchor="middle" font-size="9" font-weight="600" fill="var(--text)">主文件</text>
+                </svg>
+                <div class="legend">
+                  <span><i style="border-color:var(--primary)"></i>组件</span>
+                  <span><i style="border-color:var(--purple);border-top-style:dashed"></i>变体</span>
+                  <span><i style="border-color:var(--err);border-top-style:dotted"></i>重复</span>
+                  <span>★ 主文件</span>
+                </div>
+              </div>
+              <div class="sec">成员（4）</div>
+              <div class="gmem"><span class="role-star" style="color:var(--warn)">★</span><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" onerror="this.removeAttribute('src')"><span class="gn">RX78_身体_主体.3mf</span><span class="pill comp">组件</span><span class="jump">查看</span></div>
+              <div class="gmem"><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786283259_8_37cfb5f7.png" onerror="this.removeAttribute('src')"><span class="gn">高达武器包_v2.3mf</span><span class="pill comp">组件 · 当前</span></div>
+              <div class="gmem"><span class="thumb sm"></span><span class="gn">RX78_150%.3mf</span><span class="pill var">变体</span><span class="jump">查看</span></div>
+              <div class="gmem"><span class="thumb sm"></span><span class="gn">RX78_旧版导出.3mf</span><span class="pill r">重复</span><span class="jump">查看</span></div>
+              <div class="sec">操作</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm">打印清单</button><button class="btn ghost sm">移出本组</button><button class="btn ghost sm">设为主文件</button></div>
+            </div>
+          </div>
+          <div class="scene-note" style="margin-top:14px"><b>注释：</b><span class="callout">9</span> 点成员「查看」抽屉切换到该文件（组信息跟随）；「移出本组 / 设为主文件」即时生效并同步小图。</div>
+        </section>
+
+        <!-- ===== 场景4 ===== -->
+        <section class="scene" id="s4">
+          <div class="scene-note"><b>图管理的落点是把打印组织起来：</b>组级打印清单 <span class="callout">10</span>——哪些件打了、哪些没打一目了然；「全部标记已打印」「整组归档」一组一键。</div>
+          <div class="checklist">
+            <div class="cl-hd">
+              <div class="t">RX78-2 高达套件 · 打印清单 <span class="pill comp">套件</span></div>
+              <div class="meta"><span>已打印 <b>1/3</b></span><span class="prog"><i style="width:33%"></i></span><span>重复 1 个（不入清单）</span></div>
+            </div>
+            <div class="cl-rows">
+              <div class="cl-row done"><span>✓</span><img class="thumb sm" src="http://127.0.0.1:8000/thumbs/p1786283258_2_48e4e607.png" onerror="this.removeAttribute('src')"><span class="cn2">RX78_身体_主体.3mf</span><span class="pill comp">组件 · 主文件</span><span class="st-pill st-done">已打印</span></div>
+              <div class="cl-row"><span style="color:var(--tert)">○</span><span class="thumb sm"></span><span class="cn2">高达武器包_v2.3mf</span><span class="pill comp">组件</span><span class="st-pill st-todo">待打印</span></div>
+              <div class="cl-row"><span style="color:var(--tert)">○</span><span class="thumb sm"></span><span class="cn2">RX78_底座.3mf</span><span class="pill comp">组件</span><span class="st-pill st-todo">待打印</span></div>
+              <div class="cl-row"><span style="color:var(--tert)">○</span><span class="thumb sm"></span><span class="cn2">RX78_150%.3mf</span><span class="pill var">变体</span><span class="st-pill st-todo">待打印</span></div>
+            </div>
+            <div class="cl-ft">
+              <button class="btn ok sm">全部标记已打印</button>
+              <button class="btn ghost sm">重置状态</button>
+              <span style="flex:1"></span>
+              <button class="btn p sm">整组归档（2 个待整理）</button>
+            </div>
+          </div>
+          <div class="scene-note" style="margin-top:14px"><b>注释：</b><span class="callout">10</span> 打印状态是组级属性（成员上的标记）；重复成员自动排除在清单外。「整组归档」复用 apply-plan 批量归档。</div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+const TITLES={
+  s1:['AI 找关联 · 建议确认','仪表盘 · 关联建议确认','AI 扫描全库，按 design_id / 几何指纹 / 词干聚类产出分组建议；AI 只提议，确认权在你。'],
+  s2:['模型库 · 作品视图','模型库 · 文件/作品双视图','组聚合为作品卡片：封面、构成徽章、打印进度；文件视图与目录保持不变。'],
+  s3:['详情抽屉 · 组信息与关系小图','抽屉 · 所属作品','打开任一成员即见所属作品、静态关系小图与成员清单；不做全库画布。'],
+  s4:['组操作 · 打印清单','作品 · 打印清单','图管理的落点：把打印组织起来。整组归档、打印进度、重复自动排除。'],
+};
+const nav=document.getElementById('wkNav');
+nav.addEventListener('click',e=>{
+  const b=e.target.closest('button[data-s]');if(!b)return;
+  nav.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  const k=b.dataset.s;
+  document.querySelectorAll('.scene').forEach(x=>x.classList.toggle('on',x.id===k));
+  document.getElementById('sceneTitle').textContent=TITLES[k][0];
+  document.getElementById('sceneCrumb').textContent=TITLES[k][1];
+  document.getElementById('sceneDesc').textContent=TITLES[k][2];
+});
+function toggleTheme(){document.documentElement.classList.toggle('dark')}
+</script>
+</body>
+</html>
