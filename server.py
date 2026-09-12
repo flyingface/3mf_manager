@@ -1494,6 +1494,77 @@ class Handler(BaseHTTPRequestHandler):
                                    "alias": f["alias"], "status": f["status"]} for f in c["files"]]})
         self._send(200, {"ok": True, "suggestions": out})
 
+    def _api_group_suggest_ai(self, _=None):
+        """AI 判型命名：对确定性候选簇调 LLM，输出作品名与角色分配（Propose-Confirm 的提议侧）。
+
+        同设计/同内容的簇免费直判（免 AI）；仅词干 low 簇走 LLM；LLM 不可用时降级为
+        确定性结果（角色全 component、命名取最长公共词干）。
+        """
+        conn = db_conn()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, filename, title, design_id, sha256, geom_sig, thumb, alias, status, created_at FROM files")]
+        existing = {m["file_id"] for m in conn.execute("SELECT file_id FROM group_members")}
+        conn.close()
+        clusters = [c for c in relate.find_clusters(rows)
+                    if sum(1 for f in c["files"] if f["id"] in existing) < len(c["files"])]
+        if not clusters:
+            self._send(200, {"ok": True, "suggestions": []}); return
+        use_llm = llm_client.llm_configured()
+        out = []
+        for c in clusters:
+            files = c["files"]
+            fids = [f["id"] for f in files]
+            known = sum(1 for f in fids if f in existing)
+            sug = {"confidence": c["confidence"], "signals": c["signals"],
+                   "file_ids": fids, "already_grouped": known, "ai": False,
+                   "name": "", "roles": {}, "primary_id": fids[0],
+                   "files": [{"id": f["id"], "filename": f["filename"], "thumb": f["thumb"] or "",
+                              "alias": f["alias"], "status": f["status"]} for f in files]}
+            name = None
+            if use_llm:
+                try:
+                    listing = "\n".join(
+                        f"- id={f['id']} 文件名:{f['filename']} 标题:{f.get('title') or '—'} 归档名:{f.get('alias') or '—'}"
+                        for f in files)
+                    raw = llm_client.chat([
+                        {"role": "system", "content": (
+                            "你是 3D 打印模型库的关联分析助手。给出一组可能相关的文件，判断它们的关系并命名。\n"
+                            '用 JSON 严格输出：{"name": "简短作品名(≤16字)", "primary_id": 主文件id(数字),'
+                            ' "roles": {"id": "component|variant|duplicate|accessory"}}\n'
+                            "角色定义：component=模型的组成部件/拆件；variant=同模型的尺寸/配色/板型变体；"
+                            "duplicate=内容或旧版重复；accessory=为主模型打印的配件。")},
+                        {"role": "user", "content": f"关联信号：{'、'.join(c['signals'])}\n文件清单：\n{listing}\n请判断关系并命名。"},
+                    ], temperature=0.2)
+                    data = llm_client.extract_json(raw)
+                    name = str(data.get("name") or "").strip()[:24]
+                    pid = data.get("primary_id")
+                    if pid in fids:
+                        sug["primary_id"] = int(pid)
+                    roles_raw = data.get("roles") or {}
+                    if isinstance(roles_raw, dict):
+                        roles = {}
+                        for k, v in roles_raw.items():
+                            try:
+                                kid = int(k)
+                            except (ValueError, TypeError):
+                                continue
+                            if kid in fids and v in GROUP_ROLES:
+                                roles[kid] = v
+                        for fid in fids:
+                            sug["roles"][fid] = roles.get(fid, "component")
+                    sug["ai"] = True
+                except Exception as e:
+                    LOG.warning("AI 关联判型失败，降级确定性结果: %s", e)
+            if not sug["ai"]:
+                # 降级：SHA256 重复的标 duplicate，其余 component；命名取文件名公共词干
+                for f in files:
+                    sug["roles"][f["id"]] = "component"
+                stem = relate.stem_of(files[0]["filename"])
+                name = stem or (files[0].get("alias") or files[0]["filename"])[:16]
+            sug["name"] = name or "未命名作品"
+            out.append(sug)
+        self._send(200, {"ok": True, "suggestions": out, "ai": use_llm})
+
     def _api_dirs(self, _=None):
         """返回模型根目录下所有已存在的目录（相对路径，按层级排序），供归档路径选择器使用。
 
@@ -1783,6 +1854,7 @@ GET_ROUTES = {
     "/api/groups": Handler._api_groups,
     "/api/groups/get": Handler._api_groups_get,
     "/api/groups/suggestions": Handler._api_group_suggestions,
+    "/api/groups/suggest-ai": Handler._api_group_suggest_ai,
 }
 
 POST_ROUTES = {
