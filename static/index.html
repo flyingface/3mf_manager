@@ -353,6 +353,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .batch-fab.done .bf-ico{animation:none;background:var(--ok)}
 .batch-fab.done .bf-row{cursor:pointer}
 .bf-txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.bf-live{font-size:10px;color:var(--muted);max-width:86px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
 .bf-btn{border:none;background:var(--bg2);color:var(--muted);width:20px;height:20px;border-radius:6px;cursor:pointer;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;transition:.15s}
 .bf-btn:hover{background:var(--primary-soft);color:var(--primary)}
 .bf-detail{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
@@ -590,6 +591,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
   <div class="bf-row" id="bfRow">
     <span class="bf-ico">✦</span>
     <span class="bf-txt" id="bfTxt">AI 整理 0/0</span>
+    <span class="bf-live" id="bfLive"></span>
     <button class="bf-btn" id="bfToggle" title="展开/收起详情" onclick="event.stopPropagation();batchFabToggle()">▾</button>
     <button class="bf-btn" id="bfClose" title="取消" onclick="event.stopPropagation();fabClose()">✕</button>
   </div>
@@ -1042,12 +1044,18 @@ async function aiBatchStart(){
   _batchDone=null;_batchState='running';
   const fab=$('#batchFab');fab.classList.remove('done');fab.style.display='block';
   $('#bfDetail').style.display='none';$('#bfToggle').textContent='▾';$('#bfClose').title='取消';
+  // 计数随每个文件完成实时刷新；秒数心跳让长 LLM 调用期间进度也可见
+  const _t0=Date.now();let _d=0,_t=ids.length,_hb=null;
+  const render=()=>{$('#bfTxt').textContent=`AI 整理 ${_d}/${_t} · ${Math.round((Date.now()-_t0)/1000)}s`};
   const setP=(d,t,s,cur)=>{
+    _d=d;_t=t;
     $('#bfFill').style.width=(t?Math.round(d/t*100):0)+'%';
-    $('#bfTxt').textContent=`AI 整理 ${d}/${t}`;
+    render();
+    $('#bfLive').textContent=cur?('· '+cur):'';
     $('#bfCur').textContent=cur?`正在处理：${cur}`:'';
     $('#bfMeta').textContent=s?`已跳过（规则命中）${s} 个文件`:'';
   };
+  _hb=setInterval(render,1000);
   setP(0,ids.length,0,'');
   _aiBatchAbort=new AbortController();
   const results=[];let skipped=0,cancelled=false;
@@ -1080,9 +1088,11 @@ async function aiBatchStart(){
       }
     }
   }catch(e){
+    clearInterval(_hb);
     if(e.name==='AbortError')cancelled=true;
     else{_batchState='idle';$('#batchFab').style.display='none';toast('AI 整理失败：'+e.message);return}
   }
+  clearInterval(_hb);
   _batchState='done';
   _batchDone={results,skipped,cancelled};
   fabDone(results.length,skipped,cancelled);
@@ -1091,6 +1101,7 @@ async function aiBatchStart(){
 function fabDone(n,skipped,cancelled){
   const fab=$('#batchFab');fab.classList.add('done');
   $('#bfFill').style.width='100%';
+  $('#bfLive').textContent='';
   const suffix=cancelled?'（已暂停）':'';
   $('#bfTxt').textContent=n?`整理完成 · 查看计划 (${n})${suffix}`:`整理完成 · 规则全部命中（${skipped}）${suffix}`;
   $('#bfToggle').style.display='none';
