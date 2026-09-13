@@ -432,6 +432,16 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
   .nav{width:48px}
   .nav .ni{width:40px;height:40px}
 }
+/* ---- 作品分组管理（手动建组/成员/角色） ---- */
+.role-sel{max-width:132px;font-size:12px;padding:2px 4px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text)}
+.gp-list{max-height:38vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--card)}
+.gp-row{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--bg2)}
+.gp-row:last-child{border-bottom:none}
+.gp-row:hover{background:var(--bg2)}
+.gp-row .mn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.gp-chip{display:inline-flex;align-items:center;gap:4px;background:var(--bg2);border-radius:999px;padding:2px 8px;font-size:12px;margin:2px 6px 2px 0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-chip a{cursor:pointer;color:var(--muted);text-decoration:none}
+.gp-chip a:hover{color:var(--err)}
 </style>
 </head>
 <body>
@@ -484,7 +494,10 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <button class="tab on" id="lt-files" onclick="libTab('files')">文件视图</button>
             <button class="tab" id="lt-works" onclick="libTab('works')">作品 <span id="worksN"></span></button>
           </div>
-          <button class="btn p sm" id="aiGroupBtn" onclick="aiGroupScan()">✦ AI 找关联</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn ghost sm" onclick="openGroupCreate()">＋ 新建分组</button>
+            <button class="btn p sm" id="aiGroupBtn" onclick="aiGroupScan()">✦ AI 找关联</button>
+          </div>
         </div>
         <div id="libFilesBox">
           <div class="toolbar">
@@ -905,7 +918,8 @@ function renderDrawer(f){
 }
 
 // ===== 抽屉·所属作品（打印清单 + 成员操作 + 关系小图） =====
-const ROLE_CN={component:'组件',variant:'变体',duplicate:'重复',accessory:'配件'};
+const ROLE_CN={component:'组件',variant:'变体',duplicate:'重复',accessory:'配件',other:'其他'};
+const ROLE_KEYS=['component','variant','accessory','duplicate','other'];
 async function loadDrawerGroups(f){
   const box=document.getElementById('dr-group-'+f.id);
   if(!box)return;
@@ -914,7 +928,11 @@ async function loadDrawerGroups(f){
   // 同步进作品缓存：抽屉内的 grpLeave/grpPrintAll 依赖 _worksCache 取组名/成员
   groups.forEach(g=>{const i=_worksCache.findIndex(x=>x.id===g.id);if(i>=0)_worksCache[i]=g;else _worksCache.push(g)});
   const mine=groups.filter(g=>(g.members||[]).some(m=>m.file_id===f.id));
-  if(!mine.length){box.innerHTML='';return}
+  if(!mine.length){box.innerHTML=`<div class="dr-sec">所属作品</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      <button class="btn ghost sm" onclick="grpJoinPick(${f.id})">加入分组…</button>
+      <button class="btn ghost sm" onclick="openGroupCreate([${f.id}])">新建分组…</button>
+    </div>`;return}
   box.innerHTML=mine.map(g=>groupSectionHTML(f,g)).join('');
   mine.forEach(g=>drawGroupGraph(g));
 }
@@ -923,10 +941,15 @@ function groupSectionHTML(f,g){
   const prim=g.members.find(m=>m.is_primary)||g.members[0];
   const printed=(g.stats||{}).printed||0,total=(g.stats||{}).total||g.members.length;
   const printable=g.members.filter(m=>m.role!=='duplicate');
+  const roleSel=`<select class="role-sel" onchange="grpRoleMenu(${g.id},${f.id},this)">
+    ${me.is_primary?'':`<option value="__primary">★ 主文件</option>`}
+    ${ROLE_KEYS.map(r=>`<option value="${r}" ${me.role===r?'selected':''}>${ROLE_CN[r]}</option>`).join('')}
+  </select>`;
   return `<div class="dr-sec">所属作品：${esc(g.name)}</div>
-    <div class="hint" style="margin-bottom:6px">我在组中是 ${rolePill(me.role)}，主文件为「${esc(prim.alias||prim.filename)}」${me.is_primary?'（就是我）':''}</div>
+    <div class="hint" style="margin-bottom:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">组内角色：${roleSel}
+      <span>主文件为「${esc(prim.alias||prim.filename)}」${me.is_primary?'（就是我）':''}</span></div>
     <div class="graph-box"><svg id="gsvg-${g.id}" viewBox="0 0 360 190" width="100%" height="170" preserveAspectRatio="xMidYMid meet"></svg>
-      <div class="legend"><span><i style="border-color:var(--primary)"></i>组件</span><span><i style="border-color:var(--purple);border-top-style:dashed"></i>变体</span><span><i style="border-color:var(--err);border-top-style:dotted"></i>重复</span><span>★ 主文件</span></div>
+      <div class="legend"><span><i style="border-color:var(--primary)"></i>组件</span><span><i style="border-color:var(--purple);border-top-style:dashed"></i>变体</span><span><i style="border-color:var(--err);border-top-style:dotted"></i>重复</span><span><i style="border-color:var(--warn);border-left-style:dotted"></i>其他</span><span>★ 主文件</span></div>
     </div>
     <div class="hint" style="margin:10px 0 4px;display:flex;align-items:center;gap:8px">打印清单 ${printed}/${total}<span class="prog" style="flex:1"><i style="width:${total?Math.round(printed/total*100):0}%"></i></span></div>
     ${printable.map(m=>`<div class="gmem"><span class="role-star">${m.is_primary?'★':''}</span><span class="gn" title="${esc(m.filename)}">${esc(m.alias||m.filename)}</span>${rolePill(m.role)}
@@ -949,7 +972,7 @@ async function grpApi(payload){
 }
 async function grpSetPrinted(gid,fid,val){
   const g=await grpApi({member:{group_id:gid,file_id:fid,printed:val}});
-  if(g)refreshDrawerGroups(gid);
+  if(g)grpRefresh(gid);
 }
 async function grpPrintAll(gid){
   let g=_worksCache.find(x=>x.id===gid);
@@ -961,23 +984,44 @@ async function grpPrintAll(gid){
     await grpApi({member:{group_id:gid,file_id:m.file_id,printed:true}});
   }
   if(ms.length)toast('已全部标记打印');
-  refreshDrawerGroups(gid);
+  grpRefresh(gid);
 }
 async function grpSetPrimary(gid,fid){
   const g=await grpApi({member:{group_id:gid,file_id:fid,is_primary:true}});
-  if(g){toast('已设为主文件');refreshDrawerGroups(gid)}
+  if(g){toast('已设为主文件');grpRefresh(gid)}
 }
 async function grpLeave(gid,fid){
   // 组名从缓存取，不走内联 onclick 传字符串（避免引号转义破坏按钮）
   const gname=(_worksCache.find(x=>x.id===gid)||{}).name||'';
   if(!await uiConfirm({title:'移出本组', body:`将把当前文件从作品「<b>${esc(gname)}</b>」中移出（文件本身不受影响）。`, okText:'移出'}))return;
   const g=await grpApi({member:{group_id:gid,file_id:fid,remove:true}});
-  if(g){toast('已移出本组');refreshDrawerGroups(gid)}
+  if(g){toast('已移出本组');grpRefresh(gid)}
+}
+// 成员角色下拉统一入口：__primary=转移主文件，其余为改角色
+async function grpRoleMenu(gid,fid,sel){
+  const v=sel.value;if(!v)return;
+  if(v==='__primary'){await grpSetPrimary(gid,fid);return}
+  const g=await grpApi({member:{group_id:gid,file_id:fid,role:v}});
+  if(g){toast('角色已更新');grpRefresh(gid)}
 }
 function refreshDrawerGroups(gid){
   if(_drawerId==null)return;
   const f=_fileById[_drawerId];
   if(f)loadDrawerGroups(f);
+}
+// 组操作后按需刷新：作品卡片原位重渲染（保持展开面板打开）+ 当前抽屉同步
+function refreshWorkCard(gid){
+  const g=_worksCache.find(x=>x.id===gid);if(!g)return;
+  const el=document.getElementById('wcard-'+gid);if(!el)return;
+  const box=$('#wd-'+gid),wasOpen=box&&box.style.display==='block';
+  el.outerHTML=workCardHTML(g);
+  const nb=$('#wd-'+gid);
+  if(wasOpen&&nb){nb.innerHTML=wdPanelHTML(g);nb.style.display='block'}
+}
+function grpRefresh(gid){
+  refreshWorkCard(gid);
+  refreshDrawerGroups(gid);
+  const wn=$('#worksN');if(wn)wn.textContent=_worksCache.length?`(${_worksCache.length})`:'';
 }
 // 关系小图：中心=主文件，卫星=成员（连线颜色=关系类型），静态 SVG
 function drawGroupGraph(g){
@@ -986,8 +1030,8 @@ function drawGroupGraph(g){
   const ms=g.members||[];
   const prim=ms.find(m=>m.is_primary)||ms[0];
   const CX=180,CY=95,R=70; // R/CY 保证顶部卫星节点（y=CY-R，半径19）不超出 viewBox 顶边
-  const colors={component:'var(--primary)',variant:'var(--purple)',duplicate:'var(--err)',accessory:'var(--muted)'};
-  const dash={component:'',variant:'5 4',duplicate:'2 4',accessory:'6 3'};
+  const colors={component:'var(--primary)',variant:'var(--purple)',duplicate:'var(--err)',accessory:'var(--muted)',other:'var(--warn)'};
+  const dash={component:'',variant:'5 4',duplicate:'2 4',accessory:'6 3',other:'1 3'};
   const sats=ms.filter(m=>m!==prim);
   let defs='',lines='',nodes='';
   sats.forEach((m,i)=>{
@@ -1404,14 +1448,14 @@ async function loadWorks(){
   $('#worksN').textContent=_worksCache.length?`(${_worksCache.length})`:'';
   const w=$('#worksWrap');
   if(!_worksCache.length){
-    w.innerHTML=emptyHTML('⛓','还没有作品','上传或归档文件后，点右上角「✦ AI 找关联」扫描相关文件并建立作品分组。',
-      '<button class="btn p" onclick="aiGroupScan()">✦ AI 找关联</button>');
+    w.innerHTML=emptyHTML('⛓','还没有作品','把相关的文件（同一模型的部件/变体/重复导出/配件）手动建组管理，或让 AI 扫描全库给出关联建议。',
+      '<div style="display:flex;gap:8px;justify-content:center"><button class="btn p" onclick="openGroupCreate()">＋ 新建分组</button><button class="btn ghost" onclick="aiGroupScan()">✦ AI 找关联</button></div>');
     return;
   }
   w.innerHTML=_worksCache.map(workCardHTML).join('');
 }
 function rolePill(role){
-  const map={component:'<span class="pill comp">组件</span>',variant:'<span class="pill var">变体</span>',duplicate:'<span class="pill r">重复</span>',accessory:'<span class="pill">配件</span>'};
+  const map={component:'<span class="pill comp">组件</span>',variant:'<span class="pill var">变体</span>',duplicate:'<span class="pill r">重复</span>',accessory:'<span class="pill">配件</span>',other:'<span class="pill" style="color:var(--warn)">其他</span>'};
   return map[role]||'';
 }
 function workCardHTML(g){
@@ -1420,7 +1464,7 @@ function workCardHTML(g){
   const prim=ms.find(m=>m.is_primary)||ms[0]||{};
   const counts={};ms.forEach(m=>{counts[m.role]=(counts[m.role]||0)+1});
   const printed=st.printed||0,total=st.total||ms.length;
-  return `<div class="wcard">
+  return `<div class="wcard" id="wcard-${g.id}">
     <div class="cover" onclick="openWorkDetail(${g.id})">${cover.thumb?`<img src="/thumbs/${cover.thumb}">`:''}<span class="cnt">${total} 个文件</span></div>
     <div class="cb">
       <div class="cn" title="${esc(g.name)}">${esc(g.name)}</div>
@@ -1429,6 +1473,7 @@ function workCardHTML(g){
         ${counts.variant?`<span>变体 <b>${counts.variant}</b></span>`:''}
         ${counts.accessory?`<span>配件 <b>${counts.accessory}</b></span>`:''}
         ${counts.duplicate?`<span>重复 <b>${counts.duplicate}</b></span>`:''}
+        ${counts.other?`<span>其他 <b>${counts.other}</b></span>`:''}
         <span>已打印 <b>${printed}/${total}</b></span>
       </div>
       <div class="prog"><i style="width:${total?Math.round(printed/total*100):0}%"></i></div>
@@ -1446,14 +1491,35 @@ function workCardHTML(g){
     <div id="wd-${g.id}" style="display:none;padding:0 13px 11px"></div>
   </div>`;
 }
+// 展开成员 = 管理面板：改角色 / 转移主文件 / 打印勾选 / 移出 / 添加文件 / 重命名 / 解散
+function wdPanelHTML(g){
+  const rows=g.members.map(m=>{
+    const sel=`<select class="role-sel" onchange="grpRoleMenu(${g.id},${m.file_id},this)" title="组内角色（★ 主文件每组仅一个）">
+      ${m.is_primary?'':`<option value="__primary">★ 主文件</option>`}
+      ${ROLE_KEYS.map(r=>`<option value="${r}" ${m.role===r?'selected':''}>${ROLE_CN[r]}</option>`).join('')}
+    </select>`;
+    return `<div class="gmem"><span class="role-star">${m.is_primary?'★':''}</span><span class="gn" title="${esc(m.filename)}" style="cursor:pointer" onclick="openDrawer(${m.file_id})">${esc(m.alias||m.filename)}</span>
+      ${sel}
+      <button class="kv-ico" title="${m.printed?'标记未打印':'标记已打印'}" onclick="grpSetPrinted(${g.id},${m.file_id},${m.printed?0:1})">${m.printed?'✓':'○'}</button>
+      <button class="kv-ico" title="移出分组" onclick="grpKick(${g.id},${m.file_id})">✕</button></div>`;
+  }).join('');
+  return `<div class="hint" style="margin:2px 0 6px">★ 主文件每组仅一个；组件/变体/配件/重复/其他不限数量。所有操作只改分组关系，不影响文件本身。</div>
+    ${rows}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ghost sm" onclick="grpAddFiles(${g.id})">＋ 添加文件</button>
+      <button class="btn ghost sm" onclick="grpRename(${g.id})">✎ 重命名</button>
+      <span style="flex:1"></span>
+      <button class="btn dg sm" onclick="grpDissolve(${g.id})">解散分组</button>
+    </div>`;
+}
 function workDetailToggle(id){
   const box=$('#wd-'+id);
   if(box.style.display==='block'){box.style.display='none';return}
   const g=_worksCache.find(x=>x.id===id);if(!g)return;
-  box.innerHTML=g.members.map(m=>`<div class="gmem"><span class="role-star">${m.is_primary?'★':''}</span><span class="gn" title="${esc(m.filename)}">${esc(m.alias||m.filename)}</span>${rolePill(m.role)}${m.printed?'<span class="st-pill st-done">已打印</span>':''}<span class="jump" onclick="openDrawer(${m.file_id})">查看</span></div>`).join('');
+  box.innerHTML=wdPanelHTML(g);
   box.style.display='block';
 }
-async function openWorkDetail(id){/* 打印清单=详情模态（批次3完善，先复用展开成员） */ workDetailToggle(id)}
+async function openWorkDetail(id){/* 打印清单与成员管理共用展开面板 */ workDetailToggle(id)}
 async function workArchiveAll(id){
   const g=_worksCache.find(x=>x.id===id);if(!g)return;
   const ids=(g.members||[]).filter(m=>m.status==='pending'&&!m.is_duplicate_of).map(m=>m.file_id);
@@ -1463,6 +1529,151 @@ async function workArchiveAll(id){
   const j=await r.json();
   toast(`已归档 ${(j.results||[]).filter(x=>x.ok).length}/${ids.length} 个文件`);
   loadWorks();loadPending();loadStats();
+}
+
+// ===== 手动分组：建组 / 加成员 / 加组 / 重命名 / 解散（Propose 界面全本地，操作经 /api/groups） =====
+let _gp={mode:'create',gid:0,picked:[]},_gpT=null;
+function openGroupCreate(prefIds){
+  grpOpenPicker('create',0,prefIds||[]);
+}
+function grpAddFiles(gid){
+  grpOpenPicker('add',gid,[]);
+}
+function grpOpenPicker(mode,gid,prefIds){
+  _gp={mode,gid:gid||0,picked:[]};
+  (prefIds||[]).forEach(id=>{const f=_fileById[id];if(f&&!_gp.picked.some(x=>x.id===id))_gp.picked.push(f)});
+  const g=mode==='add'?(_worksCache.find(x=>x.id===gid)||{}):{};
+  const nameRow=mode==='create'
+    ?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="hint" style="white-space:nowrap">作品名</span><input type="text" id="gp-name" placeholder="例如：高达 RX-78 套件" style="flex:1"></div>`:'';
+  openModal(mode==='create'?'新建分组':`添加文件到「${esc(g.name||'')}」`,
+    `${nameRow}
+     <input type="text" id="gp-q" placeholder="搜索文件名 / 标题 / 归档名 / tag…" style="width:100%" oninput="gpSearchDebounced()">
+     <div id="gp-results" class="gp-list" style="margin-top:8px"></div>
+     <div id="gp-picked" style="margin-top:8px"></div>
+     <div class="modal-actions">
+       <span class="hint" style="flex:1;text-align:left">仅建立分组关系，不移动、不修改任何文件</span>
+       <button class="btn ghost" onclick="closeModal()">取消</button>
+       <button class="btn p" onclick="gpConfirmDo()">${mode==='create'?'创建分组':'添加到分组'}</button>
+     </div>`);
+  setTimeout(()=>{const i=$('#gp-q');if(i)i.focus()},50);
+  gpSearch();gpRenderPicked();
+}
+function gpSearchDebounced(){clearTimeout(_gpT);_gpT=setTimeout(gpSearch,250)}
+async function gpSearch(){
+  const inp=$('#gp-q');const box=$('#gp-results');if(!inp||!box)return;
+  const q=inp.value.trim();
+  box.innerHTML='<div class="hint" style="padding:6px 10px">搜索中…</div>';
+  let files=[];
+  try{const j=await(await fetch('/api/files?q='+encodeURIComponent(q))).json();files=j.files||[]}catch(e){}
+  if($('#gp-q')!==inp)return;  // 输入框已被重建（模态重开），丢弃过期响应
+  cacheFiles(files);
+  const shown=files.filter(f=>!_gp.picked.some(x=>x.id===f.id));
+  box.innerHTML=shown.length?shown.slice(0,50).map(f=>`
+    <label class="gp-row"><input type="checkbox" onchange="gpPick(${f.id},this.checked)">
+      <img class="thumb sm" src="/thumbs/${f.thumb||''}" onerror="this.removeAttribute('src')">
+      <span class="mn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span>
+      <span class="pill ${f.status==='pending'?'y':'cat'}">${f.status==='pending'?'待整理':'已归档'}</span></label>`).join('')
+    :'<div class="hint" style="padding:6px 10px">没有匹配的文件</div>';
+}
+function gpPick(id,on){
+  if(on){const f=_fileById[id];if(f&&!_gp.picked.some(x=>x.id===id))_gp.picked.push(f)}
+  else _gp.picked=_gp.picked.filter(x=>x.id!==id);
+  gpRenderPicked();
+}
+function gpUnpick(id){
+  _gp.picked=_gp.picked.filter(x=>x.id!==id);
+  gpRenderPicked();gpSearch();
+}
+function gpRenderPicked(){
+  const box=$('#gp-picked');if(!box)return;
+  const n=_gp.picked.length;
+  if(!n){box.innerHTML='<div class="hint">在上方搜索并勾选文件（可多选）</div>';return}
+  const chips=`<div style="margin-top:6px">${_gp.picked.map(f=>`<span class="gp-chip" title="${esc(f.alias||f.filename)}">${esc((f.alias||f.filename)).slice(0,16)}<a onclick="gpUnpick(${f.id})">✕</a></span>`).join('')}</div>`;
+  box.innerHTML=((_gp.mode==='create')
+    ?`<div class="hint" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">已选 ${n} 个文件 · 主文件：
+        <select id="gp-prim" class="role-sel">${_gp.picked.map(f=>`<option value="${f.id}">${esc(f.alias||f.filename)}</option>`).join('')}</select>
+        （每组仅一个，其余角色不限）</div>`
+    :`<div class="hint">已选 ${n} 个文件，添加后默认为「组件」，可随后修改</div>`)+chips;
+}
+async function gpConfirmDo(){
+  const gid=_gp.gid,mode=_gp.mode,picked=_gp.picked.slice();
+  if(!picked.length){toast('请先勾选文件');return}
+  if(mode==='create'){
+    const name=($('#gp-name')||{}).value?.trim();
+    if(!name){toast('请先填写作品名');return}
+    const prim=parseInt(($('#gp-prim')||{}).value||picked[0].id,10);
+    const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({create:{name,file_ids:picked.map(f=>f.id),primary_id:prim}})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||'创建失败');return}
+    closeModal();_gp.picked=[];
+    toast('分组已创建（文件位置未移动）');
+    await loadWorks();
+    if(_drawerId!=null&&_fileById[_drawerId])loadDrawerGroups(_fileById[_drawerId]);
+  }else{
+    let ok=0;
+    for(const f of picked){
+      const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({member:{group_id:gid,file_id:f.id,add:true}})});
+      if(r.ok){ok++;const j=await r.json();const i=_worksCache.findIndex(x=>x.id===gid);if(i>=0)_worksCache[i]=j.group}
+    }
+    closeModal();_gp.picked=[];
+    toast(ok?`已添加 ${ok} 个文件（默认角色「组件」）`:'添加失败');
+    grpRefresh(gid);
+  }
+}
+// 抽屉：把当前文件加入已有分组（单选列表）
+function grpJoinPick(fid){
+  const gs=_worksCache;
+  if(!gs.length){toast('库中还没有分组，可先「新建分组」');return}
+  openModal('加入分组',
+    `<div class="gp-list">${gs.map((g,i)=>`<label class="gp-row"><input type="radio" name="gpj" value="${g.id}" ${i===0?'checked':''}>
+      <span class="mn">${esc(g.name)}</span><span class="hint">${(g.members||[]).length} 个文件</span></label>`).join('')}</div>
+     <div class="modal-actions">
+       <span class="hint" style="flex:1;text-align:left">只建立分组关系，不移动文件</span>
+       <button class="btn ghost" onclick="closeModal()">取消</button>
+       <button class="btn p" onclick="grpJoinDo(${fid})">加入</button>
+     </div>`);
+}
+async function grpJoinDo(fid){
+  const sel=document.querySelector('input[name=gpj]:checked');
+  if(!sel){toast('请选择分组');return}
+  const gid=parseInt(sel.value,10);
+  const g=await grpApi({member:{group_id:gid,file_id:fid,add:true}});
+  if(g){closeModal();toast('已加入分组');grpRefresh(gid)}
+}
+// 展开面板：移出单个成员
+async function grpKick(gid,fid){
+  const g=_worksCache.find(x=>x.id===gid)||{};
+  const m=(g.members||[]).find(x=>x.file_id===fid)||{};
+  if(!await uiConfirm({title:'移出分组',body:`将把「<b>${esc(m.alias||m.filename||'该文件')}</b>」移出作品「<b>${esc(g.name||'')}</b>」。<br>文件本身不受影响。`,okText:'移出'}))return;
+  const g2=await grpApi({member:{group_id:gid,file_id:fid,remove:true}});
+  if(g2){toast('已移出分组');grpRefresh(gid)}
+}
+async function grpRename(gid){
+  const g=_worksCache.find(x=>x.id===gid);if(!g)return;
+  openModal('重命名作品',
+    `<input type="text" id="grn-in" value="${esc(g.name)}" style="width:100%" onkeydown="if(event.key==='Enter')grpRenameDo(${gid})">
+     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn p" onclick="grpRenameDo(${gid})">保存</button></div>`);
+  setTimeout(()=>{const i=$('#grn-in');if(i){i.focus();i.select()}},50);
+}
+async function grpRenameDo(gid){
+  const v=($('#grn-in')||{}).value?.trim();
+  if(!v){toast('名字不能为空');return}
+  const g=await grpApi({update:{group_id:gid,name:v}});
+  if(g){closeModal();toast('已重命名');grpRefresh(gid)}
+}
+// 解散分组：只删分组关系与角色，文件原封不动
+async function grpDissolve(gid){
+  const g=_worksCache.find(x=>x.id===gid)||{};
+  const n=(g.members||[]).length;
+  if(!await uiConfirm({title:'解散分组',body:`将解散作品「<b>${esc(g.name||'')}</b>」（共 ${n} 个文件）。<br><b>只删除分组关系与组内角色</b>，不会删除、移动或修改任何文件。`,okText:'解散分组',okClass:'btn danger'}))return;
+  const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete:{group_id:gid}})});
+  if(!r.ok){toast('操作失败');return}
+  const i=_worksCache.findIndex(x=>x.id===gid);if(i>=0)_worksCache.splice(i,1);
+  toast('分组已解散，文件不受影响');
+  const wn=$('#worksN');if(wn)wn.textContent=_worksCache.length?`(${_worksCache.length})`:'';
+  loadWorks();
+  if(_drawerId!=null&&_fileById[_drawerId])loadDrawerGroups(_fileById[_drawerId]);
 }
 
 // ===== AI 找关联：扫描 → 建议确认 → 建组 =====
