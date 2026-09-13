@@ -6,14 +6,14 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file for full license text.
 """
-解析 Downloads 目录下所有 .3mf 文件，提取元数据与几何信息。
+解析指定目录（默认 ~/Downloads）下所有 .3mf 文件，提取元数据与几何信息。
 3MF = ZIP 包，内含多个 3D/*.model (XML)。Bambu Studio 把真实网格拆到
 3D/Objects/object_X.model 等部件里，主 3D/3dmodel.model 只做装配引用。
 优化：几何用字节级子串计数（极快），元数据用正则提取（避免逐顶点 XML 解析）。
 """
 import os, sys, re, json, zipfile
 
-ROOT = "/Users/barney/Downloads"
+ROOT = os.path.expanduser("~/Downloads")
 
 def parse_3mf(path):
     rec = {
@@ -105,9 +105,12 @@ def norm_title(t):
     return t
 
 def main():
-    limit = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    # 用法: python3 parse_3mf.py [数量上限] [扫描根目录]（默认 ~/Downloads）
+    args = sys.argv[1:]
+    limit = int(args[0]) if args else 0
+    root = os.path.expanduser(args[1]) if len(args) > 1 else ROOT
     files = []
-    for dp, dn, fn in os.walk(ROOT):
+    for dp, dn, fn in os.walk(root):
         for f in fn:
             if f.lower().endswith(".3mf"):
                 files.append(os.path.join(dp, f))
@@ -117,7 +120,7 @@ def main():
     rows = []
     for p in files:
         rec = parse_3mf(p)
-        rel = os.path.relpath(p, ROOT)
+        rel = os.path.relpath(p, root)
         folder = os.path.dirname(rel)
         size = os.path.getsize(p)
         rows.append({
