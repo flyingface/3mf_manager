@@ -108,8 +108,9 @@ def save_learned_rules(rules):
 # ---------------------------------------------------------------
 # 作品关联图层（asset_groups / group_members）
 # ---------------------------------------------------------------
-GROUP_ROLES = ("component", "variant", "duplicate", "accessory")
-ROLE_NAMES = {"component": "组件", "variant": "变体", "duplicate": "重复", "accessory": "配件"}
+GROUP_ROLES = ("component", "variant", "duplicate", "accessory", "other")
+ROLE_NAMES = {"component": "组件", "variant": "变体", "duplicate": "重复",
+              "accessory": "配件", "other": "其他"}
 
 def group_rows_for(conn, group_id):
     """组详情：组行 + 成员（带文件信息）。"""
@@ -1562,9 +1563,10 @@ class Handler(BaseHTTPRequestHandler):
                         {"role": "system", "content": (
                             "你是 3D 打印模型库的关联分析助手。给出一组可能相关的文件，判断它们的关系并命名。\n"
                             '用 JSON 严格输出：{"name": "简短作品名(≤16字)", "primary_id": 主文件id(数字),'
-                            ' "roles": {"id": "component|variant|duplicate|accessory"}}\n'
+                            ' "roles": {"id": "component|variant|duplicate|accessory|other"}}\n'
                             "角色定义：component=模型的组成部件/拆件；variant=同模型的尺寸/配色/板型变体；"
-                            "duplicate=内容或旧版重复；accessory=为主模型打印的配件。")},
+                            "duplicate=内容或旧版重复；accessory=为主模型打印的配件；"
+                            "other=相关但难以归入上述角色的文件。主文件每组仅一个（primary_id），其余角色不限数量。")},
                         {"role": "user", "content": f"关联信号：{'、'.join(c['signals'])}\n文件清单：\n{listing}\n请判断关系并命名。"},
                     ], temperature=0.2)
                     data = llm_client.extract_json(raw)

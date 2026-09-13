@@ -131,6 +131,73 @@ class TestSuggestions:
         r = fetch(client, "/api/upload", files=[("file", name, _make_3mf_bytes(title, did))])
         return r["results"][0]["file"]
 
+    @staticmethod
+    def _up(client, name, title, did):
+        r = fetch(client, "/api/upload", files=[("file", name, _make_3mf_bytes(title, did))])
+        return r["results"][0]["file"]
+
+
+class TestRolesAndDissolve:
+    """批次4：other 角色、非法角色回退、主文件唯一性、解散分组不影响文件。"""
+
+    def _up(self, client, name, title, did):
+        r = fetch(client, "/api/upload", files=[("file", name, _make_3mf_bytes(title, did))])
+        return r["results"][0]["file"]
+
+    def test_role_other_roundtrip(self, client):
+        f1 = self._up(client, "ro1.3mf", "角色甲", "CNr1")
+        f2 = self._up(client, "ro2.3mf", "角色乙", "CNr2")
+        r = fetch(client, "/api/groups", data={
+            "create": {"name": "其他角色组", "file_ids": [f1["id"], f2["id"]],
+                       "roles": {str(f1["id"]): "component", str(f2["id"]): "other"},
+                       "primary_id": f1["id"]}})
+        m2 = next(m for m in r["group"]["members"] if m["file_id"] == f2["id"])
+        assert m2["role"] == "other"
+        # 改回常规角色也正常
+        r = fetch(client, "/api/groups", data={"member": {"group_id": r["group"]["id"], "file_id": f2["id"], "role": "variant"}})
+        m2 = next(m for m in r["group"]["members"] if m["file_id"] == f2["id"])
+        assert m2["role"] == "variant"
+
+    def test_invalid_role_falls_back_to_component(self, client):
+        f1 = self._up(client, "ir1.3mf", "非法甲", "CNi1")
+        f2 = self._up(client, "ir2.3mf", "非法乙", "CNi2")
+        r = fetch(client, "/api/groups", data={
+            "create": {"name": "回退组", "file_ids": [f1["id"], f2["id"]],
+                       "roles": {str(f2["id"]): "bogus"}}})
+        m2 = next(m for m in r["group"]["members"] if m["file_id"] == f2["id"])
+        assert m2["role"] == "component"
+        # member 接口设置非法角色同样回退
+        r = fetch(client, "/api/groups", data={"member": {"group_id": r["group"]["id"], "file_id": f2["id"], "role": "nope"}})
+        m2 = next(m for m in r["group"]["members"] if m["file_id"] == f2["id"])
+        assert m2["role"] == "component"
+
+    def test_primary_transfer_keeps_single_primary(self, client):
+        f1 = self._up(client, "pt1.3mf", "转移甲", "CNp1")
+        f2 = self._up(client, "pt2.3mf", "转移乙", "CNp2")
+        g = fetch(client, "/api/groups", data={"create": {"name": "转移组", "file_ids": [f1["id"], f2["id"]],
+                                                          "primary_id": f1["id"]}})["group"]
+        r = fetch(client, "/api/groups", data={"member": {"group_id": g["id"], "file_id": f2["id"], "is_primary": True}})
+        prims = [m for m in r["group"]["members"] if m["is_primary"]]
+        assert len(prims) == 1 and prims[0]["file_id"] == f2["id"]
+        old = next(m for m in r["group"]["members"] if m["file_id"] == f1["id"])
+        assert not old["is_primary"]
+
+    def test_dissolve_group_keeps_files(self, client):
+        f1 = self._up(client, "dg1.3mf", "解散甲", "CNd1")
+        f2 = self._up(client, "dg2.3mf", "解散乙", "CNd2")
+        g = fetch(client, "/api/groups", data={"create": {"name": "待解散", "file_ids": [f1["id"], f2["id"]],
+                                                          "primary_id": f1["id"]}})["group"]
+        r = fetch(client, "/api/groups", data={"delete": {"group_id": g["id"]}})
+        assert r["ok"]
+        # 组已消失
+        assert "error" in fetch(client, "/api/groups/get", data={"id": g["id"]})
+        assert fetch(client, "/api/groups")["groups"] == []
+        # 文件原封不动（状态、文件名等属性不受影响）
+        files = fetch(client, "/api/files?status=pending")["files"]
+        by_id = {f["id"]: f for f in files}
+        assert f1["id"] in by_id and f2["id"] in by_id
+        assert by_id[f1["id"]]["filename"] == f1["filename"]
+
 
 class TestGroupDetailGet:
     def test_detail_via_get_query(self, client):
