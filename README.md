@@ -29,6 +29,24 @@
 | **初始化** | 设置页可一键「初始化模型根目录」（需二次确认与路径校验），清空全部数据并重置索引与自增 id，从头开始 |
 | **关于** | 左侧一级菜单「关于」，查看功能、使用规则、最近更新与版本信息 |
 
+## 📸 界面预览
+
+浅色 / 深色主题自适应，以下截图由虚拟演示数据生成：
+
+<p>
+  <img src="docs/screenshots/dashboard.png" alt="仪表盘" width="49%" />
+  <img src="docs/screenshots/pending.png" alt="待整理" width="49%" />
+</p>
+<p>
+  <img src="docs/screenshots/library.png" alt="模型库" width="49%" />
+  <img src="docs/screenshots/detail.png" alt="详情抽屉" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/chat.png" alt="智能对话" width="49%" />
+</p>
+
+> 左上起：仪表盘（资产总览 / 分类分布 / Hash 重复提示）· 待整理（上传 / 预分类 / AI 批量整理）· 模型库（检索 / 筛选 / 分页）· 详情抽屉（大图预览 / 文件信息 / 标签附件）· 智能对话（语义检索 + 结果面板批量操作）
+
 ## 🚀 快速开始
 
 ### 依赖
