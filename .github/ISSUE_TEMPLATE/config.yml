@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 交流
+    url: https://github.com/flyingface/3mf_manager/discussions
+    description: 安装、配置、使用上的疑问请到 Discussions 讨论

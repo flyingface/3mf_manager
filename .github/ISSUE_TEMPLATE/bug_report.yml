@@ -1,0 +1,46 @@
+name: 🐛 Bug 报告
+description: 报告一个可复现的问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 感谢反馈！请先搜索既有 Issue，避免重复。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么？
+      description: 描述问题现象与期望行为。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开页面，进入「…」
+        2. 点击「…」
+        3. 出现报错「…」
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 运行 `uv run python -c "import version; print(version.__version__)"` 或提交的 commit hash
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 可粘贴 `logs/mfmanager.log` 相关片段（**请自行抹去路径、API Key 等隐私信息**）
