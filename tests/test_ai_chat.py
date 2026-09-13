@@ -49,8 +49,50 @@ def test_chat_action_whitelist(monkeypatch, client):
     monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
     monkeypatch.setattr(server.llm_client, "chat", lambda messages, **kw: raw)
     res = fetch(client, "/api/chat", data={"session_id": "t2", "message": "删了它们"})
-    assert res["action"] is None, "非 archive 动作必须被丢弃"
+    assert res["action"] is None, "白名单外动作必须被丢弃"
     assert len(res["files"]) == 1
+
+
+def test_chat_action_tag_and_group_whitelisted(monkeypatch, client):
+    ids = _upload_pair(client)
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
+    monkeypatch.setattr(server.llm_client, "chat", lambda messages, **kw: json.dumps(
+        {"reply": "好", "file_ids": ids,
+         "action": {"type": "tag", "ids": ids, "tags": ["高达", " 已整理 "]}}, ensure_ascii=False))
+    res = fetch(client, "/api/chat", data={"session_id": "t5", "message": "打上标签"})
+    assert res["action"] == {"type": "tag", "ids": ids, "tags": ["高达", "已整理"]}
+    # group：换 session 避免历史串扰
+    monkeypatch.setattr(server.llm_client, "chat", lambda messages, **kw: json.dumps(
+        {"reply": "好", "file_ids": ids,
+         "action": {"type": "group", "ids": ids, "name": "高达全家桶"}}, ensure_ascii=False))
+    res2 = fetch(client, "/api/chat", data={"session_id": "t6", "message": "建成分组"})
+    assert res2["action"]["type"] == "group"
+    assert res2["action"]["name"] == "高达全家桶"
+    assert sorted(res2["action"]["ids"]) == sorted(ids)
+
+
+def test_chat_tag_action_requires_tags(monkeypatch, client):
+    ids = _upload_pair(client)
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
+    monkeypatch.setattr(server.llm_client, "chat", lambda messages, **kw: json.dumps(
+        {"reply": "好", "file_ids": ids, "action": {"type": "tag", "ids": ids, "tags": []}},
+        ensure_ascii=False))
+    res = fetch(client, "/api/chat", data={"session_id": "t7", "message": "打标签"})
+    assert res["action"] is None, "tag 动作缺 tags 必须整体丢弃"
+
+
+def test_chat_files_carry_status_and_dup(monkeypatch, client):
+    """files 行必须带 status 与 is_duplicate（同内容非最早副本），供结果面板状态感知。"""
+    r1 = fetch(client, "/api/upload", files=[("file", "d1.3mf", _make_3mf_bytes("重复甲", "CNd9"))])
+    r2 = fetch(client, "/api/upload", files=[("file", "d2.3mf", _make_3mf_bytes("重复甲", "CNd9"))])
+    fid1, fid2 = r1["results"][0]["file"]["id"], r2["results"][0]["file"]["id"]
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
+    monkeypatch.setattr(server.llm_client, "chat", lambda messages, **kw: json.dumps(
+        {"reply": "找到", "file_ids": [fid1, fid2]}, ensure_ascii=False))
+    res = fetch(client, "/api/chat", data={"session_id": "tdup", "message": "重复甲"})
+    by_id = {f["id"]: f for f in res["files"]}
+    assert by_id[fid1]["status"] == "pending" and by_id[fid1]["is_duplicate"] is False
+    assert by_id[fid2]["is_duplicate"] is True
 
 
 def test_chat_plain_text_fallback(monkeypatch, client):

@@ -94,6 +94,21 @@ class TestGroupAPI:
         r = fetch(client, "/api/groups", data={"member": {"group_id": gid, "file_id": f2["id"], "remove": True}})
         assert len(r["group"]["members"]) == 1
 
+    def test_member_batch_add(self, client):
+        """member.add 支持批量 file_ids（结果面板批量加入分组）；单 file_id 兼容不变。"""
+        f1 = self._upload(client, "b0.3mf", "批量主", "CNb0")
+        others = [self._upload(client, f"b{i}.3mf", f"批量{i}", f"CNb{i}")["id"] for i in (1, 2, 3)]
+        g = fetch(client, "/api/groups", data={"create": {"name": "批量组", "file_ids": [f1["id"]]}})["group"]
+        r = fetch(client, "/api/groups", data={"member": {"group_id": g["id"], "add": True,
+                                                          "file_ids": others, "role": "variant"}})
+        assert len(r["group"]["members"]) == 4
+        added = [m for m in r["group"]["members"] if m["file_id"] in others]
+        assert all(m["role"] == "variant" for m in added)
+        # 已在组内的重复添加被幂等忽略
+        r2 = fetch(client, "/api/groups", data={"member": {"group_id": g["id"], "add": True,
+                                                           "file_ids": others + [f1["id"]]}})
+        assert len(r2["group"]["members"]) == 4
+
     def test_delete_file_prunes_group(self, client):
         f1 = self._upload(client, "x1.3mf", "独苗", "CNg5")
         f2 = self._upload(client, "x2.3mf", "陪衬", "CNg6")

@@ -335,14 +335,18 @@ def llm_semantic_search(query, files, top_k=8):
         return {"files": [], "answer": f"LLM 检索失败：{e}"}
 
 CHAT_SYS_PROMPT = (
-    "你是 3MF 模型库的智能助手，可以检索模型库并提议归档操作。\n"
+    "你是 3MF 模型库的智能助手，可以检索模型库并提议归档、打标签、分组操作。\n"
     "以下是相关文件清单（id. 文件名 | 标题 | 分类 | tags | 状态）。\n"
     "先直接输出给用户的自然语言回复；然后在最后一行单独输出元数据行（回复正文里不要出现 META: 字样）：\n"
-    'META:{"file_ids": [回复中提到的文件 id], "action": null 或 {"type": "archive", "ids": [要归档的文件 id], "target": "归档目标分类或路径"}}\n'
+    'META:{"file_ids": [回复中提到的文件 id], "action": null 或 '
+    '{"type": "archive", "ids": [要归档的文件 id], "target": "归档目标分类或路径"} 或 '
+    '{"type": "tag", "ids": [要打标签的文件 id], "tags": ["标签1", "标签2"]} 或 '
+    '{"type": "group", "ids": [要建成分组的文件 id], "name": "简短分组名"}}\n'
     "规则：\n"
     "1. 提到文件时必须把对应 id 放入 file_ids，便于前端展示文件卡片。\n"
-    "2. 仅当用户明确要求归档/整理某些文件时才给 action（type=archive）；否则 action 为 null。\n"
-    "3. action 只能是 archive 或 null；删除等其它操作一律不建议。\n"
+    "2. 仅当用户明确要求时才给 action：归档/整理用 archive；加标签用 tag（tags 最多 8 个）；"
+    "把多个相关文件组成一组用 group（name ≤16 字）；否则 action 为 null。\n"
+    "3. action 只能是 archive/tag/group 之一或 null；删除、退回等其它操作一律不建议。\n"
     "4. 若问题超出文件信息范围，可结合通用知识回答。\n"
     "5. 确保 META: 行是合法 JSON。"
 )
@@ -355,10 +359,38 @@ def _chat_messages(files_summary, history=None):
     msgs.extend((history or [])[-CHAT_HISTORY_MAX:])
     return msgs
 
+def _meta_int_ids(raw):
+    """META action ids 清洗：仅保留正整数。"""
+    return [int(i) for i in (raw or [])
+            if str(i).strip().lstrip("-").isdigit() and int(i) > 0]
+
+
+def _library_dup_ids():
+    """全库 SHA256 指纹 → 重复副本 id 集合（同内容多份中非最早的一份）。"""
+    conn = db_conn()
+    try:
+        idsha = conn.execute("SELECT id, sha256, created_at FROM files WHERE sha256!=''").fetchall()
+    finally:
+        conn.close()
+    by_sha = {}
+    for r in idsha:
+        by_sha.setdefault(r["sha256"], []).append(r)
+    dup = set()
+    for grp in by_sha.values():
+        if len(grp) > 1:
+            earliest = min(grp, key=lambda r: (r["created_at"] or "", r["id"]))
+            dup.update(r["id"] for r in grp if r["id"] != earliest["id"])
+    return dup
+
+
 def _chat_meta_validated(meta_data, rows):
-    """校验 META 数据 → (file_ids, files, action)。白名单只放行 archive。"""
+    """校验 META 数据 → (file_ids, files, action)。白名单放行 archive/tag/group。
+
+    files 行附带 status 与 is_duplicate（同内容非最早副本），供结果面板做状态感知操作。
+    """
     file_ids = [int(i) for i in (meta_data.get("file_ids") or [])
                 if str(i).strip().lstrip("-").isdigit()]
+    dup_ids = _library_dup_ids()
     files, valid = [], set()
     for rid in file_ids:
         match = next((r for r in rows if r["id"] == rid), None)
@@ -366,17 +398,25 @@ def _chat_meta_validated(meta_data, rows):
             valid.add(rid)
             files.append({"id": match["id"], "filename": match["filename"],
                           "alias": match["alias"], "category": match["category"],
-                          "thumb": match["thumb"]})
+                          "thumb": match["thumb"], "status": match["status"],
+                          "is_duplicate": match["id"] in dup_ids})
     action = meta_data.get("action") if isinstance(meta_data.get("action"), dict) else None
     if action:
-        # 白名单：只放行 archive；ids 必须非空，否则整体视为无动作
-        if action.get("type") != "archive":
-            action = None
-        else:
-            ids = [int(i) for i in (action.get("ids") or [])
-                   if str(i).strip().lstrip("-").isdigit()]
+        atype = action.get("type")
+        if atype == "archive":
+            ids = _meta_int_ids(action.get("ids"))
             action = {"type": "archive", "ids": ids,
                       "target": str(action.get("target") or "").strip()} if ids else None
+        elif atype == "tag":
+            ids = _meta_int_ids(action.get("ids"))
+            tags = [str(t).strip() for t in (action.get("tags") or []) if str(t).strip()][:8]
+            action = {"type": "tag", "ids": ids, "tags": tags} if ids and tags else None
+        elif atype == "group":
+            ids = _meta_int_ids(action.get("ids"))
+            name = str(action.get("name") or "").strip()[:24]
+            action = {"type": "group", "ids": ids, "name": name} if ids else None
+        else:
+            action = None
     return file_ids, files, action
 
 def _split_chat_meta(raw):
@@ -1471,9 +1511,12 @@ class Handler(BaseHTTPRequestHandler):
                 role = m.get("role") or "component"
                 if role not in GROUP_ROLES:
                     role = "component"
-                conn.execute(
-                    "INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,0,1)",
-                    (gid, fid, role, "medium"))
+                # 兼容单个 file_id 与批量 file_ids（结果面板批量加入分组）
+                fids = _meta_int_ids(m.get("file_ids")) or ([fid] if fid else [])
+                for f in fids:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,0,1)",
+                        (gid, f, role, "medium"))
                 conn.commit()
             else:
                 if m.get("role"):
