@@ -496,7 +496,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn ghost sm" onclick="openGroupCreate()">＋ 新建分组</button>
-            <button class="btn p sm" id="aiGroupBtn" onclick="aiGroupScan()">✦ AI 找关联</button>
+            <button class="btn p sm" id="aiGroupBtn" onclick="aiGroupScan()">✦ AI 建议分组</button>
           </div>
         </div>
         <div id="libFilesBox">
@@ -1444,8 +1444,8 @@ async function loadWorks(){
   $('#worksN').textContent=_worksCache.length?`(${_worksCache.length})`:'';
   const w=$('#worksWrap');
   if(!_worksCache.length){
-    w.innerHTML=emptyHTML('⛓','还没有分组','把相关的文件（同一模型的部件/变体/重复导出/配件）手动建组管理，或让 AI 扫描全库给出关联建议。',
-      '<div style="display:flex;gap:8px;justify-content:center"><button class="btn p" onclick="openGroupCreate()">＋ 新建分组</button><button class="btn ghost" onclick="aiGroupScan()">✦ AI 找关联</button></div>');
+    w.innerHTML=emptyHTML('⛓','还没有分组','把相关的文件（同一模型的部件/变体/重复导出/配件）手动建组管理，或让 AI 扫描全库给出分组建议。',
+      '<div style="display:flex;gap:8px;justify-content:center"><button class="btn p" onclick="openGroupCreate()">＋ 新建分组</button><button class="btn ghost" onclick="aiGroupScan()">✦ AI 建议分组</button></div>');
     return;
   }
   w.innerHTML=_worksCache.map(workCardHTML).join('');
@@ -1672,7 +1672,7 @@ async function grpDissolve(gid){
   if(_drawerId!=null&&_fileById[_drawerId])loadDrawerGroups(_fileById[_drawerId]);
 }
 
-// ===== AI 找关联：扫描 → 建议确认 → 建组 =====
+// ===== AI 建议分组：扫描 → 建议确认 → 建组 =====
 let _grpSugs=[];
 async function aiGroupScan(){
   if(_grpSugs.length){openGroupPlan();return}  // 已有未处理建议，直接打开
@@ -1682,10 +1682,10 @@ async function aiGroupScan(){
     const j=await r.json();
     if(!r.ok)throw new Error(j.error||'扫描失败');
     _grpSugs=j.suggestions||[];
-    if(!_grpSugs.length){toast('未发现可关联的文件：库内没有同设计编号、同内容、同几何指纹或同词干的候选');return}
+    if(!_grpSugs.length){toast('未发现可分组的候选：库内没有同设计编号、同内容、同几何指纹或同词干的关联信号');return}
     openGroupPlan();
-  }catch(e){toast('AI 找关联失败：'+e.message)}
-  finally{btn.disabled=false;btn.innerHTML=IC.ai+' AI 找关联'}
+  }catch(e){toast('AI 建议分组失败：'+e.message)}
+  finally{btn.disabled=false;btn.innerHTML=IC.ai+' AI 建议分组'}
 }
 function grpConf(c){const lv=c==='high'?3:1;return `<span class="conf">${[1,2,3].map(i=>`<i class="${i<=lv?'on':''}"></i>`).join('')}</span>`}
 function openGroupPlan(){
@@ -1707,7 +1707,7 @@ function openGroupPlan(){
         <div class="sugg-foot"><span class="hint">${esc((s.signals||[]).join(' · '))}</span><button class="btn ghost sm" onclick="grpSugDrop(${i})">忽略</button></div>
       </div>
     </div>`).join('');
-  openModal(`✦ 关联建议 <span class="hint" style="font-weight:400">${_grpSugs.length} 组 · ${n} 个文件</span>`,
+  openModal(`✦ 分组建议 <span class="hint" style="font-weight:400">${_grpSugs.length} 组 · ${n} 个文件</span>`,
     `<div style="max-height:60vh;overflow-y:auto">${body}</div>
      <div class="modal-actions">
        <span class="hint" style="flex:1;text-align:left">确认后仅建立分组，不移动任何文件</span>
@@ -2222,7 +2222,7 @@ function inline(s){
 async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><div class="n">${j.total}</div><div class="l">全部</div></div><div class="stat"><div class="n">${j.pending}</div><div class="l">待整理</div></div><div class="stat"><div class="n">${j.applied}</div><div class="l">已归档</div></div>`;const bd=$('#navbd');if(bd)bd.style.display=j.pending>0?'block':'none'}
 
 // init
-(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';const ag=$('#aiGroupBtn');if(ag)ag.innerHTML=IC.ai+' AI 找关联';fetch('/api/groups').then(r=>r.json()).then(j=>{const n=(j.groups||[]).length;$('#worksN').textContent=n?`(${n})`:''}).catch(()=>{});await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
+(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';const ag=$('#aiGroupBtn');if(ag)ag.innerHTML=IC.ai+' AI 建议分组';fetch('/api/groups').then(r=>r.json()).then(j=>{const n=(j.groups||[]).length;$('#worksN').textContent=n?`(${n})`:''}).catch(()=>{});await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
 </script>
 </body>
 </html>
