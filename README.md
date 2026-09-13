@@ -34,7 +34,7 @@
 ### 依赖
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/)（包管理，可选但推荐）
-- macOS / Linux（Windows 部分支持）
+- macOS / Linux / Windows（集成能力差异见下方「平台差异」）
 
 ### 安装与运行
 
@@ -158,9 +158,26 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 | GET | `/api/about` | 关于说明（Markdown） |
 | GET | `/api/config` | 读取配置 |
 
+## 🖥️ 平台差异
+
+核心功能（解析、分类、检索、上传管理）三平台一致，集成能力差异如下：
+
+| 能力 | macOS | Linux | Windows |
+|---|---|---|---|
+| 文件管理器定位 | ✅ Finder | ✅ xdg-open | ✅ 资源管理器 |
+| 打开 3MF 文件 | ✅ 优先调起 Bambu Studio，失败回退默认程序 | ⚠️ 系统默认程序打开 | ⚠️ 系统默认程序打开（将 Bambu Studio 设为 3MF 默认程序即等效） |
+| HEIC/BMP/TIFF 缩略图自动转 JPEG | ✅（sips） | ✅（ImageMagick） | ❌ 请先手动转为 JPEG/PNG |
+| 开机自启（launchd） | ✅ 见 [MACOS.md](MACOS.md) | ❌ | ❌ |
+
 ## 已知限制
 - MakerWorld 官网有 Cloudflare 反爬，**自动抓取官方缩略图不可行**，改为用户自行上传。
 - 数据库 `library.db` 为单机 SQLite，适合个人使用。
+
+## ⚖️ 免责声明
+
+- 本项目是**本地文件管理工具**，不包含、不分发、也不抓取任何 3MF/模型文件，仓库内无任何受版权保护的模型资产。
+- 你所管理的 3MF 文件版权归原作者所有；获取模型时请遵守来源平台（如 MakerWorld）的服务条款与原作者许可协议（如非商用限制）。
+- 本项目按 MIT 许可"原样"提供，不附带任何担保，详见 [LICENSE](LICENSE)。
 
 ## 📄 许可
 [MIT](LICENSE) © 3MF Manager Contributors
