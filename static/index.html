@@ -278,7 +278,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .res-item.on{border-color:var(--primary);background:var(--primary-soft)}
 .res-item img{width:36px;height:36px;border-radius:7px;object-fit:cover;background:var(--bg2);flex:none}
 .res-item .rn{flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.res-foot{display:flex;gap:8px}
+.res-foot{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 @media(max-width:960px){.chat-split{grid-template-columns:1fr}}
 .chat-box{display:flex;flex-direction:column;flex:1;min-height:clamp(420px,calc(100vh - 300px),860px);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--bg)}
 .chat-msgs{flex:1;overflow-y:auto;padding:16px}
@@ -538,12 +538,8 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <div class="panel-h" style="margin:0">结果面板 <span class="hint" id="resCount"></span></div>
             <button class="btn ghost sm" onclick="chatResAll()">全选</button>
           </div>
-          <div class="hint" style="margin-bottom:10px">对话中提到的文件会出现在这里，勾选后可批量操作。</div>
           <div class="res-list" id="resList"></div>
-          <div class="res-foot">
-            <button class="btn p sm" onclick="chatResArchive()">批量归档</button>
-            <button class="btn ghost sm" onclick="chatResTag()">打标签</button>
-          </div>
+          <div class="res-foot" id="resFoot"></div>
         </div>
       </div>
     </section>
@@ -1791,23 +1787,42 @@ function renderChatFinal(b,final){
     (final.files||[]).forEach(f=>{_chatRes[f.id]=f});
     renderChatRes();
   }
-  if(final.action&&final.action.type==='archive'&&final.action.ids&&final.action.ids.length){
+  if(final.action&&final.action.ids&&final.action.ids.length){
     _chatActionSeq++;const key='a'+_chatActionSeq;
-    window._chatActions=window._chatActions||{};window._chatActions[key]=final.action.ids;
-    html+=`<div class="confirm-strip"${final.action.target?` data-target="${esc(final.action.target)}"`:''}>将归档 <b>${final.action.ids.length}</b> 个文件${final.action.target?` 到 <b>${esc(final.action.target)}</b>`:''}<button class="btn p sm" style="margin-left:auto" onclick="chatDoArchive('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button></div>`;
+    window._chatActions=window._chatActions||{};
+    window._chatActions[key]=final.action.ids;
+    window._chatActionMeta=window._chatActionMeta||{};
+    window._chatActionMeta[key]=final.action;
+    const exec=`<button class="btn p sm" style="margin-left:auto" onclick="chatDoAction('${key}',this)">执行</button><button class="btn ghost sm" onclick="this.parentElement.remove()">忽略</button>`;
+    let text='';
+    if(final.action.type==='archive'){
+      text=`将归档 <b>${final.action.ids.length}</b> 个文件${final.action.target?` 到 <b>${esc(final.action.target)}</b>`:''}`;
+    }else if(final.action.type==='tag'){
+      text=`为 <b>${final.action.ids.length}</b> 个文件添加标签 <b>${esc((final.action.tags||[]).join('、'))}</b>`;
+    }else if(final.action.type==='group'){
+      text=`将把 <b>${final.action.ids.length}</b> 个文件建成分组${final.action.name?` <b>「${esc(final.action.name)}」</b>`:''}`;
+    }
+    if(text)html+=`<div class="confirm-strip"${final.action.target?` data-target="${esc(final.action.target)}"`:''}>${text}${exec}</div>`;
   }
   b.innerHTML=html;
   $('#chatMsgs').scrollTop=1e9;
 }
+function chatSysMsg(text){const sys=document.createElement('div');sys.className='sys-msg';sys.textContent=text;$('#chatMsgs').appendChild(sys);$('#chatMsgs').scrollTop=1e9}
 function chatRetry(btn){const q=btn.parentElement.dataset.q;if(!q)return;$('#chatIn').value=q;sendChat()}
-// 对话内确认执行归档（Propose-Confirm）
-async function chatDoArchive(key,btn){
-  const ids=(window._chatActions||{})[key]||[];
+// 对话内确认执行（Propose-Confirm）：archive / tag / group 统一入口
+async function chatDoAction(key,btn){
+  const meta=(window._chatActionMeta||{})[key]||{};
+  const ids=(window._chatActions||{})[key]||meta.ids||[];
   if(!ids.length)return;
+  if(meta.type==='tag')return chatDoTag(meta,ids,btn);
+  if(meta.type==='group')return chatDoGroup(meta,ids,btn);
+  return chatDoArchiveIds(meta,ids,btn);
+}
+async function chatDoArchiveIds(meta,ids,btn){
   if(btn)btn.disabled=true;
   const strip=btn?btn.closest('.confirm-strip'):null;
   try{
-    const target=(strip?strip.dataset.target:'')||'';
+    const target=(strip?strip.dataset.target:'')||(meta.target||'');
     for(const id of ids){
       if(target)await fetch('/api/recategorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:target})});
     }
@@ -1815,28 +1830,155 @@ async function chatDoArchive(key,btn){
     const j=await r.json();
     const okN=(j.results||[]).filter(x=>x.ok).length;
     if(strip)strip.innerHTML=`✓ 已归档 ${okN} / ${ids.length} 个文件`;
-    const sys=document.createElement('div');sys.className='sys-msg';sys.textContent=`✓ 已归档 ${okN}/${ids.length} 个文件`;$('#chatMsgs').appendChild(sys);$('#chatMsgs').scrollTop=1e9;
+    chatSysMsg(`✓ 已归档 ${okN}/${ids.length} 个文件`);
     ids.forEach(i=>delete _chatRes[i]);renderChatRes();loadStats();
   }catch(e){toast('归档失败：'+e.message);if(btn)btn.disabled=false}
 }
-// ===== 结果面板 =====
+async function chatDoArchive(key,btn){
+  const ids=(window._chatActions||{})[key]||[];
+  if(!ids.length)return;
+  return chatDoArchiveIds((window._chatActionMeta||{})[key]||{},ids,btn);
+}
+async function chatDoTag(meta,ids,btn){
+  const tags=(meta.tags||[]).slice();
+  if(!tags.length)return;
+  if(btn)btn.disabled=true;
+  const strip=btn?btn.closest('.confirm-strip'):null;
+  try{
+    let ok=0;
+    for(const id of ids){
+      const f=_chatRes[id]||{};
+      const cur=(f.tags||'').split(',').filter(Boolean);
+      const merged=[...new Set([...cur,...tags])];
+      if(f)f.tags=merged.join(',');
+      const r=await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags:merged})});
+      if(r.ok)ok++;
+    }
+    if(strip)strip.innerHTML=`✓ 已为 ${ok} / ${ids.length} 个文件添加标签`;
+    chatSysMsg(`✓ 已为 ${ok}/${ids.length} 个文件添加标签`);
+  }catch(e){toast('打标签失败：'+e.message);if(btn)btn.disabled=false}
+}
+async function chatDoGroup(meta,ids,btn){
+  const name=(meta.name||'').trim()||('对话分组 '+new Date().toLocaleDateString());
+  if(btn)btn.disabled=true;
+  const strip=btn?btn.closest('.confirm-strip'):null;
+  const g=await grpApi({create:{name,file_ids:ids}});
+  if(!g){if(btn)btn.disabled=false;return}
+  if(strip)strip.innerHTML=`✓ 已创建分组「${esc(name)}」（${ids.length} 个文件）`;
+  chatSysMsg(`✓ 已创建分组「${name}」（${ids.length} 个文件）`);
+}
+// ===== 结果面板（状态感知操作条：按钮随勾选内容动态生成） =====
+function resStatusPill(f){
+  if(f.is_duplicate&&f.status!=='applied')return '<span class="pill r">重复副本</span>';
+  return f.status==='applied'?'<span class="pill cat">已归档</span>':'<span class="pill y">待整理</span>';
+}
 function renderChatRes(){
   const list=Object.values(_chatRes);
-  $('#resCount').textContent=list.length?`${list.length} 个`:'';
-  $('#resList').innerHTML=list.length?list.map(f=>`<label class="res-item on"><input type="checkbox" checked data-resid="${f.id}"><img src="/thumbs/${f.thumb||''}" onerror="this.style.visibility='hidden'"><span class="rn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span>${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}</label>`).join('')
-    :'<div class="hint" style="padding:10px">对话中提到的文件会出现在这里，勾选后可批量归档 / 打标签。</div>';
+  const pend=list.filter(f=>f.status!=='applied').length,app=list.length-pend;
+  $('#resCount').textContent=list.length
+    ?(list.length+' 个 · '+(pend&&app?`${pend} 待整理 · ${app} 已归档`:(app?'全部已归档':'全部待整理')))
+    :'';
+  $('#resList').innerHTML=list.length?list.map(f=>`<label class="res-item on"><input type="checkbox" checked data-resid="${f.id}" onchange="chatResSelChange(this)"><img src="/thumbs/${f.thumb||''}" onerror="this.style.visibility='hidden'"><span class="rn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span>${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}${resStatusPill(f)}</label>`).join('')
+    :'<div class="hint" style="padding:10px">对话中提到的文件会出现在这里；勾选后，下方会给出与所选状态匹配的操作。</div>';
+  renderChatFoot();
 }
-function chatResAll(){const boxes=[...document.querySelectorAll('#resList input[data-resid]')];const allOn=boxes.every(c=>c.checked);boxes.forEach(c=>{c.checked=!allOn;c.closest('.res-item').classList.toggle('on',!allOn)})}
+// 按当前勾选生成操作条：待整理→归档；重复副本→清理；已归档→退回整理；多选→建组/入组；打标签常驻
+function renderChatFoot(){
+  const foot=$('#resFoot');if(!foot)return;
+  const rows=chatResCheckedRows();
+  if(!rows.length){foot.innerHTML='<span class="hint" style="padding:2px 0">勾选文件后，这里会出现与所选状态匹配的操作</span>';return}
+  const pend=rows.filter(f=>f.status!=='applied');
+  const dups=rows.filter(f=>f.is_duplicate&&f.status!=='applied');
+  const applied=rows.filter(f=>f.status==='applied');
+  const btns=[];
+  if(pend.length)btns.push(`<button class="btn p sm" onclick="chatResArchive()">归档 ${pend.length} 个</button>`);
+  btns.push('<button class="btn ghost sm" onclick="chatResTag()">打标签</button>');
+  if(rows.length>=2)btns.push('<button class="btn ghost sm" onclick="chatResMakeGroup()">建成分组…</button>');
+  btns.push('<button class="btn ghost sm" onclick="chatResJoinGroup()">加入分组…</button>');
+  if(dups.length)btns.push(`<button class="btn dg sm" onclick="chatResCleanDups()">删除 ${dups.length} 个重复副本</button>`);
+  if(applied.length)btns.push('<button class="btn ghost sm" onclick="chatResReturnPending()">退回整理</button>');
+  const hint=(pend.length&&applied.length)?'<span class="hint" style="margin-left:auto">混合选择：归档只处理待整理部分</span>':'';
+  foot.innerHTML=btns.join('')+hint;
+}
+function chatResSelChange(el){el.closest('.res-item').classList.toggle('on',el.checked);renderChatFoot()}
+function chatResAll(){const boxes=[...document.querySelectorAll('#resList input[data-resid]')];const allOn=boxes.every(c=>c.checked);boxes.forEach(c=>{c.checked=!allOn;c.closest('.res-item').classList.toggle('on',!allOn)});renderChatFoot()}
 function chatResChecked(){return [...document.querySelectorAll('#resList input[data-resid]:checked')].map(c=>+c.dataset.resid)}
+function chatResCheckedRows(){return chatResChecked().map(id=>_chatRes[id]).filter(Boolean)}
 async function chatResArchive(){
-  const ids=chatResChecked();
-  if(!ids.length){toast('先勾选文件');return}
+  const pend=chatResCheckedRows().filter(f=>f.status!=='applied');
+  if(!pend.length){toast('勾选中没有待整理文件');return}
   window._chatActions=window._chatActions||{};
   const key='res'+Date.now();
-  window._chatActions[key]=ids;
+  window._chatActions[key]=pend.map(f=>f.id);
   await chatDoArchive(key);
-  ids.forEach(i=>delete _chatRes[i]);
-  renderChatRes();loadPending();loadStats();
+  loadPending();
+}
+// 对话圈选 → 一键建组 / 批量入组（复用分组 API）
+function chatResMakeGroup(){
+  const rows=chatResCheckedRows();
+  if(rows.length<2){toast('至少勾选 2 个文件才能建组');return}
+  cacheFiles(rows);
+  openGroupCreate(rows.map(f=>f.id));
+}
+function chatResJoinGroup(){
+  const rows=chatResCheckedRows();
+  if(!rows.length){toast('先勾选文件');return}
+  grpJoinPickBatch(rows.map(f=>f.id));
+}
+function grpJoinPickBatch(ids){
+  const gs=_worksCache;
+  if(!gs.length){toast('库中还没有分组，可先「建成分组」');return}
+  window._joinIds=ids;
+  openModal(`把 ${ids.length} 个文件加入分组`,
+    `<div class="gp-list">${gs.map((g,i)=>`<label class="gp-row"><input type="radio" name="gpjb" value="${g.id}" ${i===0?'checked':''}><span class="mn">${esc(g.name)}</span><span class="hint">${(g.members||[]).length} 个文件</span></label>`).join('')}</div>
+     <div class="modal-actions">
+       <span class="hint" style="flex:1;text-align:left">只建立分组关系，不移动文件</span>
+       <button class="btn ghost" onclick="closeModal()">取消</button>
+       <button class="btn p" onclick="grpJoinDoBatch()">加入</button>
+     </div>`);
+}
+async function grpJoinDoBatch(){
+  const ids=window._joinIds||[];
+  const sel=document.querySelector('input[name=gpjb]:checked');
+  if(!sel){toast('请选择分组');return}
+  if(!ids.length){closeModal();return}
+  const gid=parseInt(sel.value,10);
+  const g=await grpApi({member:{group_id:gid,file_ids:ids,add:true}});
+  if(g){closeModal();toast(`已把 ${ids.length} 个文件加入「${g.name}」`);grpRefresh(gid)}
+}
+// P2：重复副本清理 / 已归档退回整理（均为有副作用的操作，红色确认）
+async function chatResCleanDups(){
+  const rows=chatResCheckedRows().filter(f=>f.is_duplicate&&f.status!=='applied');
+  if(!rows.length){toast('勾选中没有可清理的重复副本');return}
+  if(!await uiConfirm({title:'删除重复副本',body:`将把 <b>${rows.length}</b> 个重复副本移入回收站。<br>每组中最早的副本保留，分组关系与文件索引不受影响。`,okText:'删除副本',okClass:'btn danger'}))return;
+  let ok=0;
+  for(const f of rows){
+    const r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:f.id})});
+    if(r.ok){ok++;delete _chatRes[f.id]}
+  }
+  toast(ok?`已清理 ${ok} 个重复副本（移入回收站）`:'清理失败');
+  if(ok){renderChatRes();loadPending();loadStats()}
+}
+async function chatResReturnPending(){
+  const rows=chatResCheckedRows().filter(f=>f.status==='applied');
+  if(!rows.length){toast('勾选中没有已归档文件');return}
+  const desc=rows.length===1?esc(rows[0].alias||rows[0].filename):`<b>${rows.length}</b> 个文件`;
+  if(!await uiConfirm({title:'退回整理',body:`将把 ${desc} 及其关联附件移回 00_待整理。<br><b>磁盘文件会实际移动</b>。`,okText:'退回',okClass:'btn danger'}))return;
+  let ok=0;
+  for(const f of rows){
+    const r=await fetch('/api/return-pending',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:f.id})});
+    if(r.ok)ok++;
+  }
+  toast(ok?`已退回 ${ok}/${rows.length} 个文件`:'退回失败');
+  if(ok){await chatResRefreshRows(rows.map(f=>f.id));loadPending();loadStats()}
+}
+async function chatResRefreshRows(ids){
+  try{
+    const j=await(await fetch('/api/files')).json();
+    cacheFiles(j.files||[]);
+    (j.files||[]).forEach(f=>{if(ids.includes(f.id)&&_chatRes[f.id])_chatRes[f.id]=Object.assign({},_chatRes[f.id],f,{is_duplicate:!!f.is_duplicate})});
+    renderChatRes();
+  }catch(e){}
 }
 async function chatResTag(){
   const ids=chatResChecked();
