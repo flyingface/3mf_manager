@@ -27,7 +27,8 @@ def _sse_post(base, path, data):
 
 
 def _fake_llm(monkeypatch, category="手办/恐龙", conf="high", is_new="true"):
-    """伪造 LLM 返回，避免测试真实调用。"""
+    """伪造 LLM 返回，避免测试真实调用；同时放行 llm_configured 闸门（不依赖本机 config.json）。"""
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
     def fake_chat(messages, **kw):
         return json.dumps({"category": category, "is_new": is_new,
                            "reason": "恐龙主题", "alias": "恐龙模型",
@@ -62,6 +63,7 @@ def test_batch_sse_skips_rule_matched(monkeypatch, client):
 
 
 def test_batch_sse_llm_failure_yields_error_progress(monkeypatch, client):
+    monkeypatch.setattr(server.llm_client, "llm_configured", lambda: True)
     def broken_chat(messages, **kw):
         raise RuntimeError("超时")
     monkeypatch.setattr(server.llm_client, "chat", broken_chat)

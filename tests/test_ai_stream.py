@@ -8,6 +8,11 @@ from tests.test_api import fetch, _make_3mf_bytes  # client fixture 在 conftest
 
 
 def test_chat_stream_parses_sse(monkeypatch):
+    # chat_stream 从 load_config() 读端点配置：stub 掉以不依赖开发者本机 config.json
+    monkeypatch.setattr(llm_client, "load_config", lambda: {
+        "llm": {"base_url": "http://llm.test/v1", "api_key": "test-key", "model": "test-model"},
+        "paths": {}})
+
     class FakeResp:
         def __init__(self, lines):
             self._lines = lines

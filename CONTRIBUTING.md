@@ -6,9 +6,9 @@
 
 ```bash
 # 克隆后
-uv sync --dev           # 安装依赖（含 pytest）
-uv run pytest           # 运行测试
-uv run mfmanager 8000   # 本地启动
+uv sync --dev --extra dev            # 安装依赖（含 pytest）
+uv run python -m pytest              # 运行测试
+uv run mfmanager 8000                # 本地启动
 ```
 
 ## 分支与提交
@@ -32,11 +32,11 @@ test: 增加解析器测试
 ## 测试
 
 - 所有修复/新功能应配套 `tests/` 下的 pytest 用例。
-- 运行：`uv run pytest`。
+- 运行：`uv run python -m pytest`。
 
 ## 提交 PR
 
-1. 确保 `uv run pytest` 全部通过。
+1. 确保 `uv run python -m pytest` 全部通过。
 2. 更新 `CHANGELOG.md`。
 3. 在 PR 描述中说明改动动机与验证方式。
 

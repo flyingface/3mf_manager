@@ -2,7 +2,7 @@
 
 本地 3D 打印文件管理器 — 解析、分类、重命名、检索并整理你本地来自 MakerWorld 的 3MF 文件。
 
-![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![deps](https://img.shields.io/badge/deps-零第三方依赖-success)
+![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![deps](https://img.shields.io/badge/deps-零第三方依赖-success) [![CI](https://github.com/flyingface/3mf_manager/actions/workflows/ci.yml/badge.svg)](https://github.com/flyingface/3mf_manager/actions/workflows/ci.yml)
 
 **零第三方运行时依赖**（纯 Python 标准库 + SQLite），可选接入任意 OpenAI 兼容的 LLM（本地 Ollama/vLLM、DeepSeek、通义等）获得智能分类、语义检索与多轮对话能力。
 
