@@ -1,0 +1,10 @@
+{
+  "llm": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "api_key": "",
+    "model": "qwen2.5:14b"
+  },
+  "paths": {
+    "library_root": "~/Downloads/3mf_data"
+  }
+}

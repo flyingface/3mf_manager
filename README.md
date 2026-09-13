@@ -81,7 +81,7 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 
 ## ⚙️ 配置
 
-首次启动在 `设置` 页配置，或直接编辑 `config.json`：
+首次启动在 `设置` 页配置，或复制 `config.example.json` 为 `config.json` 后修改：
 
 ```json
 {
