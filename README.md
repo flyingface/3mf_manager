@@ -64,18 +64,20 @@ open http://127.0.0.1:8000
 ./service.sh logs       # 查看日志
 ```
 
-> `service.sh` 使用 `launchd`（macOS）或 `nohup` 守护进程，PID 与日志落在 `./run/` 与 `./logs/`。
+> `service.sh` 使用 `nohup` 守护进程，PID 与日志落在 `./run/` 与 `./logs/`；重启 Mac 不会自动恢复，开机自启请看 [macOS 使用指南](MACOS.md#开机自启launchd)。
 
 ## 🧪 运行测试
 
 ```bash
 uv sync --dev --extra dev     # 安装 pytest
-uv run pytest                 # 全部测试
-uv run pytest tests/ -v       # 详细
-uv run pytest --cov=.         # 带覆盖率
+uv run python -m pytest                 # 全部测试
+uv run python -m pytest tests/ -v       # 详细
+uv run python -m pytest --cov=.         # 带覆盖率
 ```
 
-macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）。
+macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd），安装步骤见 [MACOS.md](MACOS.md#开机自启launchd)。
+
+> 🍎 Mac 用户推荐阅读 [macOS 使用指南](MACOS.md)：后台常驻、开机自启、Bambu Studio 调起、Finder 集成、HEIC 缩略图、Time Machine 备份与常见问题。
 
 ## ⚙️ 配置
 
@@ -124,6 +126,7 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 
 ## 📚 文档
 
+- [macOS 使用指南](MACOS.md)
 - [架构说明](ARCHITECTURE.md)
 - [参与贡献](CONTRIBUTING.md)
 - [更新日志](CHANGELOG.md)
