@@ -176,6 +176,8 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 ## ⚖️ 免责声明
 
 - 本项目是**本地文件管理工具**，不包含、不分发、也不抓取任何 3MF/模型文件，仓库内无任何受版权保护的模型资产。
+- **本项目为非官方工具**，与拓竹科技（Bambu Lab）及其平台 MakerWorld 无任何隶属、合作或赞助关系，亦未经其认证或认可。
+- Bambu Lab、Bambu Studio、MakerWorld 等名称与标识为其权利人的商标，本文仅在描述兼容性与互操作时作叙述性引用。
 - 你所管理的 3MF 文件版权归原作者所有；获取模型时请遵守来源平台（如 MakerWorld）的服务条款与原作者许可协议（如非商用限制）。
 - 本项目按 MIT 许可"原样"提供，不附带任何担保，详见 [LICENSE](LICENSE)。
 
