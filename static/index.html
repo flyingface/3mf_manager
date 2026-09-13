@@ -492,7 +492,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
         <div class="toolbar" style="justify-content:space-between">
           <div class="lib-tabs" style="margin:0">
             <button class="tab on" id="lt-files" onclick="libTab('files')">文件视图</button>
-            <button class="tab" id="lt-works" onclick="libTab('works')">作品 <span id="worksN"></span></button>
+            <button class="tab" id="lt-works" onclick="libTab('works')">分组 <span id="worksN"></span></button>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn ghost sm" onclick="openGroupCreate()">＋ 新建分组</button>
@@ -510,7 +510,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
           <div id="libWrap"></div>
         </div>
         <div id="libWorksBox" style="display:none">
-          <div class="hint" style="margin-bottom:10px">作品 = 相关联文件的分组（组件/变体/重复/配件）。文件仍按目录存放，作品只是它们之间的关系。</div>
+          <div class="hint" style="margin-bottom:10px">分组 = 相关联文件的集合（组件/变体/配件/重复/其他）。文件仍按目录存放，分组只是它们之间的关系。</div>
           <div class="works-grid" id="worksWrap"></div>
         </div>
       </div>
@@ -928,7 +928,7 @@ async function loadDrawerGroups(f){
   // 同步进作品缓存：抽屉内的 grpLeave/grpPrintAll 依赖 _worksCache 取组名/成员
   groups.forEach(g=>{const i=_worksCache.findIndex(x=>x.id===g.id);if(i>=0)_worksCache[i]=g;else _worksCache.push(g)});
   const mine=groups.filter(g=>(g.members||[]).some(m=>m.file_id===f.id));
-  if(!mine.length){box.innerHTML=`<div class="dr-sec">所属作品</div>
+  if(!mine.length){box.innerHTML=`<div class="dr-sec">所属分组</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="btn ghost sm" onclick="grpJoinPick(${f.id})">加入分组…</button>
       <button class="btn ghost sm" onclick="openGroupCreate([${f.id}])">新建分组…</button>
@@ -945,7 +945,7 @@ function groupSectionHTML(f,g){
     ${me.is_primary?'':`<option value="__primary">★ 主文件</option>`}
     ${ROLE_KEYS.map(r=>`<option value="${r}" ${me.role===r?'selected':''}>${ROLE_CN[r]}</option>`).join('')}
   </select>`;
-  return `<div class="dr-sec">所属作品：${esc(g.name)}</div>
+  return `<div class="dr-sec">所属分组：${esc(g.name)}</div>
     <div class="hint" style="margin-bottom:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">组内角色：${roleSel}
       <span>主文件为「${esc(prim.alias||prim.filename)}」${me.is_primary?'（就是我）':''}</span></div>
     <div class="graph-box"><svg id="gsvg-${g.id}" viewBox="0 0 360 190" width="100%" height="170" preserveAspectRatio="xMidYMid meet"></svg>
@@ -993,7 +993,7 @@ async function grpSetPrimary(gid,fid){
 async function grpLeave(gid,fid){
   // 组名从缓存取，不走内联 onclick 传字符串（避免引号转义破坏按钮）
   const gname=(_worksCache.find(x=>x.id===gid)||{}).name||'';
-  if(!await uiConfirm({title:'移出本组', body:`将把当前文件从作品「<b>${esc(gname)}</b>」中移出（文件本身不受影响）。`, okText:'移出'}))return;
+  if(!await uiConfirm({title:'移出本组', body:`将把当前文件从分组「<b>${esc(gname)}</b>」中移出（文件本身不受影响）。`, okText:'移出'}))return;
   const g=await grpApi({member:{group_id:gid,file_id:fid,remove:true}});
   if(g){toast('已移出本组');grpRefresh(gid)}
 }
@@ -1448,7 +1448,7 @@ async function loadWorks(){
   $('#worksN').textContent=_worksCache.length?`(${_worksCache.length})`:'';
   const w=$('#worksWrap');
   if(!_worksCache.length){
-    w.innerHTML=emptyHTML('⛓','还没有作品','把相关的文件（同一模型的部件/变体/重复导出/配件）手动建组管理，或让 AI 扫描全库给出关联建议。',
+    w.innerHTML=emptyHTML('⛓','还没有分组','把相关的文件（同一模型的部件/变体/重复导出/配件）手动建组管理，或让 AI 扫描全库给出关联建议。',
       '<div style="display:flex;gap:8px;justify-content:center"><button class="btn p" onclick="openGroupCreate()">＋ 新建分组</button><button class="btn ghost" onclick="aiGroupScan()">✦ AI 找关联</button></div>');
     return;
   }
@@ -1544,7 +1544,7 @@ function grpOpenPicker(mode,gid,prefIds){
   (prefIds||[]).forEach(id=>{const f=_fileById[id];if(f&&!_gp.picked.some(x=>x.id===id))_gp.picked.push(f)});
   const g=mode==='add'?(_worksCache.find(x=>x.id===gid)||{}):{};
   const nameRow=mode==='create'
-    ?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="hint" style="white-space:nowrap">作品名</span><input type="text" id="gp-name" placeholder="例如：高达 RX-78 套件" style="flex:1"></div>`:'';
+    ?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="hint" style="white-space:nowrap">分组名</span><input type="text" id="gp-name" placeholder="例如：高达 RX-78 套件" style="flex:1"></div>`:'';
   openModal(mode==='create'?'新建分组':`添加文件到「${esc(g.name||'')}」`,
     `${nameRow}
      <input type="text" id="gp-q" placeholder="搜索文件名 / 标题 / 归档名 / tag…" style="width:100%" oninput="gpSearchDebounced()">
@@ -1600,7 +1600,7 @@ async function gpConfirmDo(){
   if(!picked.length){toast('请先勾选文件');return}
   if(mode==='create'){
     const name=($('#gp-name')||{}).value?.trim();
-    if(!name){toast('请先填写作品名');return}
+    if(!name){toast('请先填写分组名');return}
     const prim=parseInt(($('#gp-prim')||{}).value||picked[0].id,10);
     const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({create:{name,file_ids:picked.map(f=>f.id),primary_id:prim}})});
@@ -1645,13 +1645,13 @@ async function grpJoinDo(fid){
 async function grpKick(gid,fid){
   const g=_worksCache.find(x=>x.id===gid)||{};
   const m=(g.members||[]).find(x=>x.file_id===fid)||{};
-  if(!await uiConfirm({title:'移出分组',body:`将把「<b>${esc(m.alias||m.filename||'该文件')}</b>」移出作品「<b>${esc(g.name||'')}</b>」。<br>文件本身不受影响。`,okText:'移出'}))return;
+  if(!await uiConfirm({title:'移出分组',body:`将把「<b>${esc(m.alias||m.filename||'该文件')}</b>」移出分组「<b>${esc(g.name||'')}</b>」。<br>文件本身不受影响。`,okText:'移出'}))return;
   const g2=await grpApi({member:{group_id:gid,file_id:fid,remove:true}});
   if(g2){toast('已移出分组');grpRefresh(gid)}
 }
 async function grpRename(gid){
   const g=_worksCache.find(x=>x.id===gid);if(!g)return;
-  openModal('重命名作品',
+  openModal('重命名分组',
     `<input type="text" id="grn-in" value="${esc(g.name)}" style="width:100%" onkeydown="if(event.key==='Enter')grpRenameDo(${gid})">
      <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn p" onclick="grpRenameDo(${gid})">保存</button></div>`);
   setTimeout(()=>{const i=$('#grn-in');if(i){i.focus();i.select()}},50);
@@ -1666,7 +1666,7 @@ async function grpRenameDo(gid){
 async function grpDissolve(gid){
   const g=_worksCache.find(x=>x.id===gid)||{};
   const n=(g.members||[]).length;
-  if(!await uiConfirm({title:'解散分组',body:`将解散作品「<b>${esc(g.name||'')}</b>」（共 ${n} 个文件）。<br><b>只删除分组关系与组内角色</b>，不会删除、移动或修改任何文件。`,okText:'解散分组',okClass:'btn danger'}))return;
+  if(!await uiConfirm({title:'解散分组',body:`将解散分组「<b>${esc(g.name||'')}</b>」（共 ${n} 个文件）。<br><b>只删除分组关系与组内角色</b>，不会删除、移动或修改任何文件。`,okText:'解散分组',okClass:'btn danger'}))return;
   const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete:{group_id:gid}})});
   if(!r.ok){toast('操作失败');return}
   const i=_worksCache.findIndex(x=>x.id===gid);if(i>=0)_worksCache.splice(i,1);
@@ -1699,7 +1699,7 @@ function openGroupPlan(){
     <div class="sugg ${s.confidence==='low'?'low':''}" id="gsugg-${i}">
       <div class="sugg-hd">
         <input type="checkbox" ${s.confidence==='high'?'checked':''} onchange="grpSugToggle(${i},this.checked)">
-        <span class="hint">作品名</span><input type="text" id="gsname-${i}" value="${esc(s.name||'')}" placeholder="命名…">
+        <span class="hint">分组名</span><input type="text" id="gsname-${i}" value="${esc(s.name||'')}" placeholder="命名…">
         ${grpConf(s.confidence)}
         ${s.ai?'<span class="pill">✦ AI 判型</span>':''}
         <span class="sp"></span>
@@ -1714,7 +1714,7 @@ function openGroupPlan(){
   openModal(`✦ 关联建议 <span class="hint" style="font-weight:400">${_grpSugs.length} 组 · ${n} 个文件</span>`,
     `<div style="max-height:60vh;overflow-y:auto">${body}</div>
      <div class="modal-actions">
-       <span class="hint" style="flex:1;text-align:left">确认后仅建立作品分组，不移动任何文件</span>
+       <span class="hint" style="flex:1;text-align:left">确认后仅建立分组，不移动任何文件</span>
        <button class="btn ghost" onclick="closeModal()">取消</button>
        <button class="btn p" onclick="grpPlanApply()">创建分组</button>
      </div>`);
@@ -1737,7 +1737,7 @@ async function grpPlanApply(){
   }
   closeModal();
   _grpSugs=[];
-  toast(`已创建 ${ok} 个作品分组（文件位置未移动）`);
+  toast(`已创建 ${ok} 个分组（文件位置未移动）`);
   if(_libTab==='works')loadWorks();
   else{const w=$('#worksN');fetch('/api/groups').then(r=>r.json()).then(j=>{w.textContent=(j.groups||[]).length?`(${(j.groups||[]).length})`:''})}
 }

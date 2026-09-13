@@ -1403,7 +1403,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "rule": entry, "rules": rules})
 
     def _api_groups(self, data):
-        """作品组 API。data: {} 列表 / {id} 详情 / {create:{name, file_ids, roles?, primary_id?, cover_file_id?}} 创建 /
+        """分组 API。data: {} 列表 / {id} 详情 / {create:{name, file_ids, roles?, primary_id?, cover_file_id?}} 创建 /
         {update:{group_id, name?|cover_file_id?}} 更新 / {delete:{group_id}} 删除 /
         {member:{group_id, file_id, role?, printed?, is_primary?, remove?, add?}} 成员操作。"""
         conn = db_conn()
@@ -1413,7 +1413,7 @@ class Handler(BaseHTTPRequestHandler):
             name = (c.get("name") or "").strip()
             file_ids = [int(i) for i in (c.get("file_ids") or [])]
             if not name or not file_ids:
-                conn.close(); self._send(400, {"error": "需要作品名与至少一个文件"}); return
+                conn.close(); self._send(400, {"error": "需要分组名与至少一个文件"}); return
             roles = c.get("roles") or {}
             if not isinstance(roles, dict):
                 roles = {}
@@ -1528,7 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "suggestions": out})
 
     def _api_group_suggest_ai(self, _=None):
-        """AI 判型命名：对确定性候选簇调 LLM，输出作品名与角色分配（Propose-Confirm 的提议侧）。
+        """AI 判型命名：对确定性候选簇调 LLM，输出分组名与角色分配（Propose-Confirm 的提议侧）。
 
         同设计/同内容的簇免费直判（免 AI）；仅词干 low 簇走 LLM；LLM 不可用时降级为
         确定性结果（角色全 component、命名取最长公共词干）。
@@ -1562,7 +1562,7 @@ class Handler(BaseHTTPRequestHandler):
                     raw = llm_client.chat([
                         {"role": "system", "content": (
                             "你是 3D 打印模型库的关联分析助手。给出一组可能相关的文件，判断它们的关系并命名。\n"
-                            '用 JSON 严格输出：{"name": "简短作品名(≤16字)", "primary_id": 主文件id(数字),'
+                            '用 JSON 严格输出：{"name": "简短分组名(≤16字)", "primary_id": 主文件id(数字),'
                             ' "roles": {"id": "component|variant|duplicate|accessory|other"}}\n'
                             "角色定义：component=模型的组成部件/拆件；variant=同模型的尺寸/配色/板型变体；"
                             "duplicate=内容或旧版重复；accessory=为主模型打印的配件；"
@@ -1595,7 +1595,7 @@ class Handler(BaseHTTPRequestHandler):
                     sug["roles"][f["id"]] = "component"
                 stem = relate.stem_of(files[0]["filename"])
                 name = stem or (files[0].get("alias") or files[0]["filename"])[:16]
-            sug["name"] = name or "未命名作品"
+            sug["name"] = name or "未命名分组"
             out.append(sug)
         self._send(200, {"ok": True, "suggestions": out, "ai": use_llm})
 
