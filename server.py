@@ -54,7 +54,7 @@ make_alias = classify.make_alias
 sanitize_alias = classify.sanitize_alias
 
 cfg = llm_client.load_config()
-LIBRARY_ROOT = cfg["paths"].get("library_root") or os.path.join(os.path.expanduser("~"), "Downloads", "3mf_data")
+LIBRARY_ROOT = os.path.expanduser(cfg["paths"].get("library_root") or "~/Downloads/3mf_data")
 INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
 
 # ---- 日志：logs/mfmanager.log 轮转 + 控制台；替换静默 except，出错可回溯 ----
@@ -736,7 +736,7 @@ class Handler(BaseHTTPRequestHandler):
         # 若路径变了，刷新全局并按 rel_path 重定位已有索引（附件同理）
         global LIBRARY_ROOT, INBOX
         old_root = LIBRARY_ROOT
-        LIBRARY_ROOT = c["paths"]["library_root"]
+        LIBRARY_ROOT = os.path.expanduser(c["paths"]["library_root"])
         INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
         os.makedirs(LIBRARY_ROOT, exist_ok=True)
         os.makedirs(INBOX, exist_ok=True)
