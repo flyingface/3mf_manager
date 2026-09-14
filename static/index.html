@@ -1088,7 +1088,7 @@ $('#drawerMask').addEventListener('click',closeDrawer);
 // ===== 待整理 =====
 function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<div class="sk-card"><div class="sk-bg sk-img"></div><div class="sk-bg sk-line w80"></div><div class="sk-bg sk-line w60"></div><div class="sk-bg sk-line w40"></div></div>`}s+='</div>';return s}
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
-async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
+async function loadPending(){try{$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);$('#pendCount').textContent=j.files.length}catch(e){$('#pendingWrap').innerHTML=emptyHTML('⚠','加载失败','无法获取待整理列表，请确认服务是否在运行。','')}loadStats()}
 function renderPending(files){cacheFiles(files);window._pendingIds=files.map(f=>f.id);const hint=$('#aiBatchHint');if(hint)hint.textContent=files.length?`(${files.length})`:'';const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f)).join('')+'</div>'}
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败：'+(j.results[0].error||'未知原因'));closeDrawer();loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const all=j.files;if(!all.length){toast('无待整理');return}const archivable=all.filter(f=>!f.is_duplicate);const skipped=all.length-archivable.length;const ids=archivable.map(f=>f.id);const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();let msg=`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`;if(skipped>0)msg+=`（跳过 ${skipped} 个重复文件）`;toast(msg);loadPending();if(typeof search==='function')search()}
@@ -1427,8 +1427,17 @@ async function returnToPending(id){
 let _dt;function debouncedSearch(){clearTimeout(_dt);_dt=setTimeout(()=>{libPage=1;search()},300)}
 async function loadCatFilter(){const r=await fetch('/api/categories');const j=await r.json();const fr=await fetch('/api/files');const fj=await fr.json();const uniq=new Set();fj.files.forEach(f=>{if(f.category)uniq.add(f.category.split(' · ')[0])});$('#f-cat').innerHTML='<option value="">全部分类</option>'+[...uniq].sort().map(c=>`<option>${esc(c)}</option>`).join('')}
 let libPage=1,libPageSize=20,libItems=[],libTotal=0;
-async function search(){$('#libWrap').innerHTML=skeletonHTML(6);const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);p.set('limit',libPageSize);p.set('offset',(libPage-1)*libPageSize);const r=await fetch('/api/files?'+p);const j=await r.json();libItems=j.files||[];libTotal=(j.total!=null)?j.total:libItems.length;cacheFiles(libItems);paintLib()}
-function paintLib(){const w=$('#libWrap');if(!libItems.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}const pages=Math.max(1,Math.ceil(libTotal/libPageSize));if(libPage>pages)libPage=pages;let html=`<div class="hint" style="margin-bottom:10px">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;w.innerHTML=html}
+async function search(){$('#libWrap').innerHTML=skeletonHTML(6);try{const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);p.set('limit',libPageSize);p.set('offset',(libPage-1)*libPageSize);const r=await fetch('/api/files?'+p);const j=await r.json();libItems=j.files||[];libTotal=(j.total!=null)?j.total:libItems.length;cacheFiles(libItems);paintLib()}catch(e){$('#libWrap').innerHTML=emptyHTML('⚠','加载失败','无法获取模型列表，请确认服务是否在运行。','')}}
+function paintLib(){
+  const pages=Math.max(1,Math.ceil(libTotal/libPageSize));
+  // 翻页越界（最后一页文件被归档/删除后 offset 落空）：回退到有效页重取，而非显示假「未找到」
+  if(!libItems.length&&libTotal>0&&libPage>pages){libPage=pages;return search()}
+  const w=$('#libWrap');
+  if(!libItems.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}
+  let html=`<div class="hint" style="margin-bottom:10px">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';
+  html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;
+  w.innerHTML=html;
+}
 function libGo(p){if(p<1)return;libPage=p;search()}
 
 // ===== 作品视图（图管理） =====
