@@ -1699,14 +1699,14 @@ async function aiGroupScan(){
   }catch(e){toast('AI 建议分组失败：'+e.message)}
   finally{btn.disabled=false;btn.innerHTML=IC.ai+' AI 建议分组'}
 }
-function grpConf(c){const lv=c==='high'?3:1;return `<span class="conf">${[1,2,3].map(i=>`<i class="${i<=lv?'on':''}"></i>`).join('')}</span>`}
+function grpConf(c){const lv=c==='high'?3:c==='low'?1:2;return `<span class="conf">${[1,2,3].map(i=>`<i class="${i<=lv?'on':''}"></i>`).join('')}</span>`}
 function openGroupPlan(){
   if(!_grpSugs.length)return;
   const n=_grpSugs.reduce((a,s)=>a+s.file_ids.length,0);
   const body=_grpSugs.map((s,i)=>`
     <div class="sugg ${s.confidence==='low'?'low':''}" id="gsugg-${i}">
       <div class="sugg-hd">
-        <input type="checkbox" ${s.confidence==='high'?'checked':''} onchange="grpSugToggle(${i},this.checked)">
+        <input type="checkbox" ${(s._checked!=null?s._checked:s.confidence==='high')?'checked':''} onchange="grpSugToggle(${i},this.checked)">
         <span class="hint">分组名</span><input type="text" id="gsname-${i}" value="${esc(s.name||'')}" placeholder="命名…">
         ${grpConf(s.confidence)}
         ${s.ai?'<span class="pill">✦ AI 判型</span>':''}
