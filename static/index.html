@@ -965,6 +965,17 @@ async function grpApi(payload){
   const j=await r.json();
   if(!r.ok){toast(j.error||'操作失败');return null}
   const g=j.group;
+  if(!g){
+    // 服务端自动清理了空组（如移出最后一个成员）：group 为 null，同步缓存并刷新视图，避免残留幽灵卡片
+    const gid=(payload.member||{}).group_id||0;
+    const i=_worksCache.findIndex(x=>x.id===gid);
+    if(i>=0)_worksCache.splice(i,1);
+    const wn=$('#worksN');if(wn)wn.textContent=_worksCache.length?`(${_worksCache.length})`:'';
+    loadWorks();
+    if(_drawerId!=null&&_fileById[_drawerId])loadDrawerGroups(_fileById[_drawerId]);
+    if(payload.member&&payload.member.remove)toast('分组已无成员，已自动解散');
+    return null;
+  }
   const idx=_worksCache.findIndex(x=>x.id===g.id);
   if(idx>=0)_worksCache[idx]=g;else loadWorks();
   return g;
@@ -1940,8 +1951,11 @@ function chatResJoinGroup(){
   if(!rows.length){toast('先勾选文件');return}
   grpJoinPickBatch(rows.map(f=>f.id));
 }
-function grpJoinPickBatch(ids){
-  const gs=_worksCache;
+async function grpJoinPickBatch(ids){
+  let gs=_worksCache;
+  if(!gs.length){ // init 只拉分组计数不填缓存：对话页可能从未加载过作品视图
+    try{_worksCache=gs=(await(await fetch('/api/groups')).json()).groups||[]}catch(e){}
+  }
   if(!gs.length){toast('库中还没有分组，可先「建成分组」');return}
   window._joinIds=ids;
   openModal(`把 ${ids.length} 个文件加入分组`,
