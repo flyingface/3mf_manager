@@ -17,7 +17,7 @@
   --r-sm:8px; --r-md:12px; --r-lg:16px;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
   --shadow-sm:0 1px 2px rgba(16,24,40,.05);
-  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);
+  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);--purple:#7b4ff0;
 }
 /* ---- 暗色模式：跟随系统偏好；:root.dark 提供手动开关通道 ---- */
 @media(prefers-color-scheme:dark){
@@ -31,7 +31,7 @@
     --info:#5b86f5;--info-soft:#1d2740;--info-border:#2f4370;
     --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 20px rgba(0,0,0,.35);
     --shadow-sm:0 1px 2px rgba(0,0,0,.45);
-    --grad:linear-gradient(135deg,#5b86f5,#9a6ff5);
+    --grad:linear-gradient(135deg,#5b86f5,#9a6ff5);--purple:#9a6ff5;
   }
 }
 :root.dark{
@@ -44,7 +44,7 @@
   --info:#5b86f5;--info-soft:#1d2740;--info-border:#2f4370;
   --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 20px rgba(0,0,0,.35);
   --shadow-sm:0 1px 2px rgba(0,0,0,.45);
-  --grad:linear-gradient(135deg,#5b86f5,#9a6ff5);
+  --grad:linear-gradient(135deg,#5b86f5,#9a6ff5);--purple:#9a6ff5;
 }
 /* 显式浅色：用于深色系统下手动切回浅色 */
 :root.light{
@@ -57,7 +57,7 @@
   --info:#3b6df0;--info-soft:#e9effd;--info-border:#bcd0fb;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.06);
   --shadow-sm:0 1px 2px rgba(16,24,40,.05);
-  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);
+  --grad:linear-gradient(135deg,#3b6df0,#7b4ff0);--purple:#7b4ff0;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;font-size:13px}
