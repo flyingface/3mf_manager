@@ -530,7 +530,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
           <div class="chat-box">
             <div class="chat-msgs" id="chatMsgs"></div>
             <div class="chat-input">
-              <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter')sendChat()">
+              <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter'&&!event.isComposing)sendChat()">
               <button class="btn p" onclick="sendChat()">发送</button>
             </div>
           </div>
@@ -732,7 +732,7 @@ const drop=document.querySelector('.drop');
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});
 drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
 drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');uploadFiles(e.dataTransfer.files)});
-$('#fileInput').addEventListener('change',e=>uploadFiles(e.target.files));
+$('#fileInput').addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value='' /* 支持再次选择同一文件 */});
 async function uploadFiles(files){
   const arr=[...files].filter(f=>f.name.toLowerCase().endsWith('.3mf'));
   if(!arr.length){toast('请选择 .3mf');return}
@@ -860,15 +860,15 @@ function renderDrawer(f){
   const editSec=editable?`
     <div class="dr-form">
       <label>归档名</label>
-      <input type="text" id="dr-alias" data-cur="${esc(f.alias||'')}" value="${esc(f.alias||'')}" placeholder="归档文件名（不含扩展名）" onkeydown="if(event.key==='Enter')drSave('alias',${f.id})" onchange="drSave('alias',${f.id})">
+      <input type="text" id="dr-alias" data-cur="${esc(f.alias||'')}" value="${esc(f.alias||'')}" placeholder="归档文件名（不含扩展名）" onkeydown="if(event.key==='Enter'&&!event.isComposing)drSave('alias',${f.id})" onchange="drSave('alias',${f.id})">
       <label>分类</label>
       <div style="display:flex;gap:6px;min-width:0">
-        <input type="text" id="dr-cat" data-cur="${esc(f.category||'')}" value="${esc(f.category||'')}" list="dr-catlist" placeholder="输入或选择分类" style="flex:1;min-width:0" onkeydown="if(event.key==='Enter')drSave('cat',${f.id})" onchange="drSave('cat',${f.id})">
+        <input type="text" id="dr-cat" data-cur="${esc(f.category||'')}" value="${esc(f.category||'')}" list="dr-catlist" placeholder="输入或选择分类" style="flex:1;min-width:0" onkeydown="if(event.key==='Enter'&&!event.isComposing)drSave('cat',${f.id})" onchange="drSave('cat',${f.id})">
         <button class="kv-ico" style="width:34px;height:34px" title="AI 自动分类" data-cur="${esc(f.category||'')}" onclick="promptClassify(${f.id}, this)">${IC.ai}</button>
       </div>
       <datalist id="dr-catlist"></datalist>
       <label>归档路径</label>
-      <input type="text" id="dr-target" data-cur="${esc(f.target_dir||'')}" value="${esc(f.target_dir||'')}" placeholder="相对子目录路径，如 01_IP授权/高达Gundam" onkeydown="if(event.key==='Enter')drSave('target',${f.id})" onchange="drSave('target',${f.id})">
+      <input type="text" id="dr-target" data-cur="${esc(f.target_dir||'')}" value="${esc(f.target_dir||'')}" placeholder="相对子目录路径，如 01_IP授权/高达Gundam" onkeydown="if(event.key==='Enter'&&!event.isComposing)drSave('target',${f.id})" onchange="drSave('target',${f.id})">
     </div>`:'';
   const kv=`
     <div class="kv">
@@ -895,15 +895,16 @@ function renderDrawer(f){
     <div id="dr-group-${f.id}"></div>
     <div class="dr-sec">标签</div>
     <div class="tag-input" style="margin:0">
-      <input type="text" id="tagin-${f.id}" placeholder="+ 输入标签后回车" style="flex:1" onkeydown="if(event.key==='Enter')addTag(${f.id}, this)">
+      <input type="text" id="tagin-${f.id}" placeholder="+ 输入标签后回车" style="flex:1" onkeydown="if(event.key==='Enter'&&!event.isComposing)addTag(${f.id}, this)">
       <button class="btn ghost sm" onclick="addTag(${f.id}, this)">添加</button>
     </div>
     <div class="taglist" data-tag-id="${f.id}">${tagsHtml||'<span class="hint">无标签</span>'}</div>
     <div class="dr-sec">附件</div>
     <div class="attach-list" data-att-id="${f.id}">${f.attachments?attachmentsHTML(f.id,f.attachments):'<span class="hint">无附件</span>'}</div>
     <button class="btn ghost sm" style="margin-top:8px" onclick="attachFile(${f.id})">关联附件</button>`;
+  const dupBlocked=editable&&f.is_duplicate&&!f.is_earliest;
   $('#drawerFoot').innerHTML=
-    (editable?`<button class="btn ok" onclick="applyOne(${f.id})">归档</button>
+    (editable?`<button class="btn ok"${dupBlocked?' disabled title="存在相同 SHA256 的文件，非最早副本不可归档"':''} onclick="applyOne(${f.id})">归档</button>
       <button class="btn ghost" onclick="promptClassify(${f.id}, this)">${IC.ai} AI 分类</button>
       <span style="flex:1"></span>
       <button class="btn dg" onclick="delFile(${f.id})">${IC.trash} 删除</button>`
@@ -1089,7 +1090,7 @@ function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
 async function loadPending(){$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);loadStats();$('#pendCount').textContent=j.files.length}
 function renderPending(files){cacheFiles(files);window._pendingIds=files.map(f=>f.id);const hint=$('#aiBatchHint');if(hint)hint.textContent=files.length?`(${files.length})`:'';const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f)).join('')+'</div>'}
-async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败');closeDrawer();loadPending();if(typeof search==='function')search()}
+async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败：'+(j.results[0].error||'未知原因'));closeDrawer();loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const all=j.files;if(!all.length){toast('无待整理');return}const archivable=all.filter(f=>!f.is_duplicate);const skipped=all.length-archivable.length;const ids=archivable.map(f=>f.id);const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();let msg=`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`;if(skipped>0)msg+=`（跳过 ${skipped} 个重复文件）`;toast(msg);loadPending();if(typeof search==='function')search()}
 
 // ===== 批量 AI 整理：后台执行（右下角悬浮组件，不阻塞操作） =====
@@ -1326,7 +1327,7 @@ async function llmClassify(id,btn,hint,history){
       </div>
       <div id="cls-refine-${id}" style="display:none;margin-top:8px">
         <div style="display:flex;gap:6px">
-          <input type="text" id="cls-refine-in-${id}" placeholder="例如：这是某电影的角色手办" style="flex:1" onkeydown="if(event.key==='Enter')clsRefineSend(${id})">
+          <input type="text" id="cls-refine-in-${id}" placeholder="例如：这是某电影的角色手办" style="flex:1" onkeydown="if(event.key==='Enter'&&!event.isComposing)clsRefineSend(${id})">
           <button class="btn p sm" onclick="clsRefineSend(${id})">发送</button>
         </div>
         <div class="ai-chips">${['这是某动漫/电影/游戏的角色周边','按用途归类（收纳/装饰/工具）','归入更细的子分类'].map(c=>`<button class="chip" onclick="clsRefineChip(${id},this)">${esc(c)}</button>`).join('')}</div>
@@ -1650,7 +1651,7 @@ async function grpKick(gid,fid){
 async function grpRename(gid){
   const g=_worksCache.find(x=>x.id===gid);if(!g)return;
   openModal('重命名分组',
-    `<input type="text" id="grn-in" value="${esc(g.name)}" style="width:100%" onkeydown="if(event.key==='Enter')grpRenameDo(${gid})">
+    `<input type="text" id="grn-in" value="${esc(g.name)}" style="width:100%" onkeydown="if(event.key==='Enter'&&!event.isComposing)grpRenameDo(${gid})">
      <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn p" onclick="grpRenameDo(${gid})">保存</button></div>`);
   setTimeout(()=>{const i=$('#grn-in');if(i){i.focus();i.select()}},50);
 }
