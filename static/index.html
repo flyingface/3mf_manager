@@ -881,7 +881,7 @@ function renderDrawer(f){
       <b>上传时间</b><span>${esc(f.created_at||'—')}</span>
       ${f.applied_at?`<b>归档时间</b><span>${esc(f.applied_at)}</span>`:''}
     </div>`;
-  const tagsHtml=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${f.id},'${esc(t)}')">×</span></span>`).join('');
+  const tagsHtml=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" data-tag="${esc(t)}" onclick="removeTag(${f.id},this)">×</span></span>`).join('');
   $('#drawerTitle').textContent=headTitle;
   $('#drawerSt').innerHTML=stPill;
   $('#drawerBody').innerHTML=`
@@ -1311,7 +1311,7 @@ async function llmClassify(id,btn,hint,history){
       return;
     }
     _clsCtx[id]={btn,history:[...history,{category:j.category,reason:j.reason||'',feedback:hint}]};
-    const adopt=`<button class="btn ok sm" onclick="applyCategory(${id},'${esc(j.category)}',${j.is_new},'${esc(j.alias||'')}')">${j.is_new?'创建新分类':'采用'}</button>`;
+    const adopt=`<button class="btn ok sm" data-cat="${esc(j.category)}" data-alias="${esc(j.alias||'')}" data-new="${j.is_new?1:0}" onclick="applyCategory(${id},this)">${j.is_new?'创建新分类':'采用'}</button>`;
     const confTxt=j.confidence==='high'?'置信 ●●●':j.confidence==='low'?'置信 ●○○':'置信 ●●○';
     box.innerHTML=`<div style="font-size:12px;padding:8px 0 8px 10px;border-left:3px solid;border-image:var(--grad) 1">
       <div><span class="pill ${j.is_new?'y':''}" style="${j.is_new?'':'background:var(--ok-soft);color:var(--ok)'}">${esc(j.category)}</span>
@@ -1368,7 +1368,8 @@ function confirmClassify(){
   const ta=$('#classifyHintInput');const hint=ta?ta.value.trim():'';const ctx=_classifyCtx;closeModal();
   if(ctx)llmClassify(ctx.id,ctx.btn,hint);
 }
-async function applyCategory(id,cat,isNew,alias){
+async function applyCategory(id,btn){
+  const cat=btn.getAttribute('data-cat'),alias=btn.getAttribute('data-alias')||'',isNew=btn.getAttribute('data-new')==='1';
   const url=isNew?'/api/confirm-new-category':'/api/recategorize';
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,category:cat,alias:alias||''})});
   const j=await r.json();
@@ -1384,13 +1385,13 @@ function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.
 
 // ===== Tag =====
 async function addTag(id,el){const inp=document.getElementById('tagin-'+id);const v=(inp?inp.value:'').trim();if(!v)return;const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean);if(tags.some(t=>t===v)){toast('标签已关联');inp.value='';return}tags.push(v);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});inp.value='';toast('已添加标签');refreshTags(id)}
-async function removeTag(id,tag){const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});refreshTags(id)}
+async function removeTag(id,el){const tag=el.getAttribute('data-tag');const files=await(await fetch('/api/files')).json();const f=files.files.find(x=>x.id===id);if(!f)return;const tags=(f.tags||'').split(',').filter(Boolean).filter(t=>t!==tag);await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags})});refreshTags(id)}
 // 局部刷新某文件的标签列表（仅更新该卡片 .taglist，不重渲染整个列表，保留编辑中的元素）
 async function refreshTags(id){
   let f=null;
   try{const files=await(await fetch('/api/files')).json();f=files.files.find(x=>x.id===id)}catch(e){return}
   if(!f)return;
-  const html=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" onclick="removeTag(${id},'${esc(t)}')">×</span></span>`).join('')||'<span class="hint">无标签</span>';
+  const html=(f.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t)}<span class="x" data-tag="${esc(t)}" onclick="removeTag(${id},this)">×</span></span>`).join('')||'<span class="hint">无标签</span>';
   document.querySelectorAll('[data-tag-id="'+id+'"]').forEach(tl=>tl.innerHTML=html);
   if(typeof loadStats==='function')loadStats();
 }
