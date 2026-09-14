@@ -531,7 +531,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <div class="chat-msgs" id="chatMsgs"></div>
             <div class="chat-input">
               <input type="text" id="chatIn" placeholder="例如：帮我找所有高达相关的模型" onkeydown="if(event.key==='Enter'&&!event.isComposing)sendChat()">
-              <button class="btn p" onclick="sendChat()">发送</button>
+              <button class="btn p" id="chatSendBtn" onclick="sendChat()">发送</button>
             </div>
           </div>
         </div>
@@ -991,10 +991,12 @@ async function grpPrintAll(gid){
     try{g=(await(await fetch('/api/groups/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:gid})})).json()).group}catch(e){}
   }
   const ms=(g||{}).members||[];
-  for(const m of ms.filter(x=>x.role!=='duplicate'&&!x.printed)){
+  const todo=ms.filter(x=>x.role!=='duplicate'&&!x.printed);
+  if(!todo.length){toast(ms.length?'组内文件均已标记打印':'组内没有文件');return}
+  for(const m of todo){
     await grpApi({member:{group_id:gid,file_id:m.file_id,printed:true}});
   }
-  if(ms.length)toast('已全部标记打印');
+  toast(`已标记打印 ${todo.length} 个文件`);
   grpRefresh(gid);
 }
 async function grpSetPrimary(gid,fid){
@@ -1411,7 +1413,7 @@ async function refreshTags(id){
 
 // ===== 缩略图/附件 =====
 function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,image/bmp,image/tiff';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;if(!f.size){toast('未取到图片数据：Safari 从照片图库选图可能不兼容，请改用 Chrome，或在「照片」App 导出图片后再上传');return}const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(/\.(heic|heif|bmp|tif|tiff)$/i.test(f.name)?'已上传并自动转换':'缩略图已更新');loadPending();if(typeof search==='function')search()}else{toast('上传失败：'+(j.error||'未知错误'))}};inp.click()}
-function attachFile(id){const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(`附件已关联 ${j.saved.length}`);refreshAttach(id)}else{toast('失败');loadPending()}};inp.click()}
+function attachFile(id){document.querySelectorAll('.ctx').forEach(x=>x.style.display='none');const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(`附件已关联 ${j.saved.length}`);refreshAttach(id)}else{toast('失败');loadPending()}};inp.click()}
 function attachmentsHTML(id, list){
   const atts=list||[];
   return atts.length?'附件：'+atts.map(a=>`<a href="/attachments/${a.id}" download="${esc(a.name)}" title="下载（原路径 ${esc(a.rel_path||a.abs_path||a.name)}）">${esc(a.name)}</a><span class="x" title="删除附件" onclick="delAttach(${a.id}, ${id})">${IC.trash}</span>`).join(' '):'';
@@ -1425,7 +1427,7 @@ async function delFile(id){
   const r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
   const j=await r.json();
   if(!j.ok){toast('删除失败：'+(j.error||'未知错误'));return}
-  closeDrawer();
+  if(_drawerId===id)closeDrawer(); // 只在删除的正是当前抽屉文件时收起
   toast('已删除（源文件在回收站可恢复）');loadPending();search()}
 async function returnToPending(id){
   if(!await uiConfirm({title:'退回整理', body:'索引状态将改为<strong>待整理</strong>，主文件与关联附件会一并移回 00_待整理，可在待整理页重新编辑归档名/分类后再归档。', okText:'退回整理', okClass:'btn p'}))return;
@@ -1767,8 +1769,11 @@ let _chatRes={};      // id -> 文件（结果面板数据）
 let _chatActionSeq=0; // 对话内 action 确认条的键
 function addMsg(role,text){const box=$('#chatMsgs');const div=document.createElement('div');div.className='msg '+role;div.innerHTML=`<div class="bubble">${esc(text)}</div>`;box.appendChild(div);box.scrollTop=box.scrollHeight;return div}
 let sessionId='s'+Date.now();
+let _chatBusy=false; // 回复流式返回期间禁止再次发送/清空，避免两条回复交错
 async function sendChat(){
   const msg=$('#chatIn').value.trim();if(!msg)return;
+  if(_chatBusy){toast('上一条还在回复中，稍候…');return}
+  _chatBusy=true;const sb=$('#chatSendBtn');if(sb)sb.disabled=true;
   $('#chatIn').value='';addMsg('user',msg);
   const d=document.createElement('div');d.className='msg assistant';
   d.innerHTML='<div class="bubble"><span class="dots"><i></i><i></i><i></i></span>正在思考…</div>';
@@ -1802,6 +1807,8 @@ async function sendChat(){
     if(m.includes('未配置')){b.innerHTML='LLM 未配置，需要先在设置中填写模型地址与模型名。 <button class="btn p sm" onclick="switchTab(\'settings\')">去设置</button>'}
     else{b.innerHTML=esc('❌ '+m)+' <button class="btn ghost sm" onclick="chatRetry(this)">重试</button>';b.dataset.q=msg}
     $('#chatMsgs').scrollTop=1e9;
+  }finally{
+    _chatBusy=false;if(sb)sb.disabled=false;
   }
 }
 function renderChatFinal(b,final){
@@ -2028,7 +2035,7 @@ async function chatResTagApply(){
   await Promise.all(ids.map(id=>{const f=_chatRes[id]||{};const cur=(f.tags||'').split(',').filter(Boolean);const merged=[...new Set([...cur,...tags])];if(f)f.tags=merged.join(',');return fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,tags:merged})})}));
   closeModal();toast(`已为 ${ids.length} 个文件添加标签`);
 }
-function clearChat(){$('#chatMsgs').innerHTML='';_chatRes={};renderChatRes();sessionId='s'+Date.now();chatWelcome()}
+function clearChat(){if(_chatBusy){toast('回复进行中，稍候再清空');return}$('#chatMsgs').innerHTML='';_chatRes={};renderChatRes();sessionId='s'+Date.now();chatWelcome()}
 function chatWelcome(){if($('#chatMsgs').children.length)return;const d=document.createElement('div');d.className='msg assistant';d.innerHTML='<div class="bubble">你好，我是你的 3MF 模型库助手，可以试试：</div><div class="chat-chips">'+['帮我找所有高达相关模型','有哪些收纳类的文件？','列出待整理的文件'].map(s=>`<button class="chip" onclick="chipAsk(this)">${esc(s)}</button>`).join('')+'</div>';$('#chatMsgs').appendChild(d)}
 function chipAsk(el){$('#chatIn').value=el.textContent;sendChat()}
 
