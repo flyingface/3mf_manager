@@ -1688,6 +1688,15 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
         if not row:
             conn.close(); self._send(404, {"error": "not found"}); return
+        # 0) 重复防护：同内容组中最早副本是保留份，禁止删除（先删其他副本，删到最后一份时自然放行）
+        s = (row["sha256"] or "").strip()
+        if s:
+            grp = conn.execute("SELECT id, created_at FROM files WHERE sha256=?", (s,)).fetchall()
+            if len(grp) > 1:
+                earliest = min(grp, key=lambda r: (r["created_at"] or "", r["id"]))
+                if earliest["id"] == row["id"]:
+                    conn.close()
+                    self._send(400, {"ok": False, "error": "该文件是同内容多份中的最早副本（保留份），请先删除其他副本"}); return
         # 1) 主文件移入回收站（可恢复）
         moved_main = trash_move(file_full_path(row))
         # 2) 缩略图（可再生成）直接删除

@@ -1869,7 +1869,7 @@ async function chatDoGroup(meta,ids,btn){
 }
 // ===== 结果面板（状态感知操作条：按钮随勾选内容动态生成） =====
 function resStatusPill(f){
-  if(f.is_duplicate&&f.status!=='applied')return '<span class="pill r">重复副本</span>';
+  if(f.is_duplicate&&!f.is_earliest&&f.status!=='applied')return '<span class="pill r">重复副本</span>';
   return f.status==='applied'?'<span class="pill cat">已归档</span>':'<span class="pill y">待整理</span>';
 }
 function renderChatRes(){
@@ -1888,7 +1888,7 @@ function renderChatFoot(){
   const rows=chatResCheckedRows();
   if(!rows.length){foot.innerHTML='<span class="hint" style="padding:2px 0">勾选文件后，这里会出现与所选状态匹配的操作</span>';return}
   const pend=rows.filter(f=>f.status!=='applied');
-  const dups=rows.filter(f=>f.is_duplicate&&f.status!=='applied');
+  const dups=rows.filter(f=>f.is_duplicate&&!f.is_earliest&&f.status!=='applied');
   const applied=rows.filter(f=>f.status==='applied');
   const btns=[];
   if(pend.length)btns.push(`<button class="btn p sm" onclick="chatResArchive()">归档 ${pend.length} 个</button>`);
@@ -1948,7 +1948,8 @@ async function grpJoinDoBatch(){
 }
 // P2：重复副本清理 / 已归档退回整理（均为有副作用的操作，红色确认）
 async function chatResCleanDups(){
-  const rows=chatResCheckedRows().filter(f=>f.is_duplicate&&f.status!=='applied');
+  // 最早副本是保留份：即使数据异常带入，也不进入删除范围（服务端同样有防护）
+  const rows=chatResCheckedRows().filter(f=>f.is_duplicate&&!f.is_earliest&&f.status!=='applied');
   if(!rows.length){toast('勾选中没有可清理的重复副本');return}
   if(!await uiConfirm({title:'删除重复副本',body:`将把 <b>${rows.length}</b> 个重复副本移入回收站。<br>每组中最早的副本保留，分组关系与文件索引不受影响。`,okText:'删除副本',okClass:'btn danger'}))return;
   let ok=0;
@@ -1976,7 +1977,8 @@ async function chatResRefreshRows(ids){
   try{
     const j=await(await fetch('/api/files')).json();
     cacheFiles(j.files||[]);
-    (j.files||[]).forEach(f=>{if(ids.includes(f.id)&&_chatRes[f.id])_chatRes[f.id]=Object.assign({},_chatRes[f.id],f,{is_duplicate:!!f.is_duplicate})});
+    // /api/files 的 is_duplicate 覆盖同组全部成员（含最早副本），这里归一成结果面板口径：仅非最早副本
+    (j.files||[]).forEach(f=>{if(ids.includes(f.id)&&_chatRes[f.id])_chatRes[f.id]=Object.assign({},_chatRes[f.id],f,{is_duplicate:!!f.is_duplicate&&!f.is_earliest,is_earliest:!!f.is_earliest})});
     renderChatRes();
   }catch(e){}
 }

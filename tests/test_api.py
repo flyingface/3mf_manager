@@ -59,6 +59,24 @@ def test_upload_parse_and_hashdup(client):
     assert r2["results"][0]["is_duplicate"] is True
 
 
+def test_delete_blocks_earliest_dup(client):
+    """同内容组最早副本是保留份：/api/delete 必须拒绝；删掉其他副本后放行。"""
+    r1 = fetch(client, "/api/upload", files=[("file", "dup_a.3mf", _make_3mf_bytes("重复内容", "CNdup9"))])
+    r2 = fetch(client, "/api/upload", files=[("file", "dup_b.3mf", _make_3mf_bytes("重复内容", "CNdup9"))])
+    fa, fb = r1["results"][0]["file"], r2["results"][0]["file"]
+    rows = {f["id"]: f for f in fetch(client, "/api/files")["files"]}
+    earliest_id = fa["id"] if rows[fa["id"]]["is_earliest"] else fb["id"]
+    other_id = fb["id"] if earliest_id == fa["id"] else fa["id"]
+    # 最早副本拒绝删除
+    blocked = fetch(client, "/api/delete", data={"id": earliest_id})
+    assert "最早" in blocked.get("error", "")
+    # 该 id 仍在库中
+    assert any(f["id"] == earliest_id for f in fetch(client, "/api/files")["files"])
+    # 非最早副本可删；组只剩一份后，原最早副本恢复可删
+    assert fetch(client, "/api/delete", data={"id": other_id})["ok"] is True
+    assert fetch(client, "/api/delete", data={"id": earliest_id})["ok"] is True
+
+
 def test_upload_apply_and_query(client):
     r = fetch(client, "/api/upload", files=[("file", "horsy.3mf", _make_3mf_bytes("马年小马", "CNh1"))])
     fid = r["results"][0]["file"]["id"]
