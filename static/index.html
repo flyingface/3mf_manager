@@ -538,7 +538,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
         <div class="res-panel">
           <div class="toolbar" style="justify-content:space-between;margin-bottom:10px">
             <div class="panel-h" style="margin:0">结果面板 <span class="hint" id="resCount"></span></div>
-            <button class="btn ghost sm" onclick="chatResAll()">全选</button>
+            <button class="btn ghost sm" id="resAllBtn" onclick="chatResAll()">全选</button>
           </div>
           <div class="res-list" id="resList"></div>
           <div class="res-foot" id="resFoot"></div>
@@ -1890,13 +1890,16 @@ function renderChatRes(){
   $('#resCount').textContent=list.length
     ?(list.length+' 个 · '+(pend&&app?`${pend} 待整理 · ${app} 已归档`:(app?'全部已归档':'全部待整理')))
     :'';
-  $('#resList').innerHTML=list.length?list.map(f=>`<label class="res-item on"><input type="checkbox" checked data-resid="${f.id}" onchange="chatResSelChange(this)"><img src="/thumbs/${f.thumb||''}" onerror="this.style.visibility='hidden'"><span class="rn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span>${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}${resStatusPill(f)}</label>`).join('')
+  $('#resList').innerHTML=list.length?list.map(f=>`<label class="res-item${f._sel===false?'':' on'}"><input type="checkbox" ${f._sel===false?'':'checked'} data-resid="${f.id}" onchange="chatResSelChange(this)"><img src="/thumbs/${f.thumb||''}" onerror="this.style.visibility='hidden'"><span class="rn" title="${esc(f.filename)}">${esc(f.alias||f.filename)}</span>${f.category?`<span class="pill cat">${esc(f.category)}</span>`:''}${resStatusPill(f)}</label>`).join('')
     :'<div class="hint" style="padding:10px">对话中提到的文件会出现在这里；勾选后，下方会给出与所选状态匹配的操作。</div>';
   renderChatFoot();
 }
 // 按当前勾选生成操作条：待整理→归档；重复副本→清理；已归档→退回整理；多选→建组/入组；打标签常驻
 function renderChatFoot(){
   const foot=$('#resFoot');if(!foot)return;
+  // 「全选」实为全选/全不选切换，文案随当前勾选状态
+  const boxes=[...document.querySelectorAll('#resList input[data-resid]')];
+  const allBtn=$('#resAllBtn');if(allBtn)allBtn.textContent=(boxes.length&&boxes.every(c=>c.checked))?'全不选':'全选';
   const rows=chatResCheckedRows();
   if(!rows.length){foot.innerHTML='<span class="hint" style="padding:2px 0">勾选文件后，这里会出现与所选状态匹配的操作</span>';return}
   const pend=rows.filter(f=>f.status!=='applied');
@@ -1912,8 +1915,8 @@ function renderChatFoot(){
   const hint=(pend.length&&applied.length)?'<span class="hint" style="margin-left:auto">混合选择：归档只处理待整理部分</span>':'';
   foot.innerHTML=btns.join('')+hint;
 }
-function chatResSelChange(el){el.closest('.res-item').classList.toggle('on',el.checked);renderChatFoot()}
-function chatResAll(){const boxes=[...document.querySelectorAll('#resList input[data-resid]')];const allOn=boxes.every(c=>c.checked);boxes.forEach(c=>{c.checked=!allOn;c.closest('.res-item').classList.toggle('on',!allOn)});renderChatFoot()}
+function chatResSelChange(el){const f=_chatRes[+el.dataset.resid];if(f)f._sel=el.checked;el.closest('.res-item').classList.toggle('on',el.checked);renderChatFoot()}
+function chatResAll(){const boxes=[...document.querySelectorAll('#resList input[data-resid]')];const allOn=boxes.length&&boxes.every(c=>c.checked);boxes.forEach(c=>{c.checked=!allOn;c.closest('.res-item').classList.toggle('on',!allOn);const f=_chatRes[+c.dataset.resid];if(f)f._sel=!allOn});renderChatFoot()}
 function chatResChecked(){return [...document.querySelectorAll('#resList input[data-resid]:checked')].map(c=>+c.dataset.resid)}
 function chatResCheckedRows(){return chatResChecked().map(id=>_chatRes[id]).filter(Boolean)}
 async function chatResArchive(){
@@ -2243,7 +2246,7 @@ function inline(s){
 async function loadStats(){const r=await fetch('/api/stats');const j=await r.json();$('#statsBar').innerHTML=`<div class="stat"><div class="n">${j.total}</div><div class="l">全部</div></div><div class="stat"><div class="n">${j.pending}</div><div class="l">待整理</div></div><div class="stat"><div class="n">${j.applied}</div><div class="l">已归档</div></div>`;const bd=$('#navbd');if(bd)bd.style.display=j.pending>0?'block':'none'}
 
 // init
-(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';const ag=$('#aiGroupBtn');if(ag)ag.innerHTML=IC.ai+' AI 建议分组';fetch('/api/groups').then(r=>r.json()).then(j=>{const n=(j.groups||[]).length;$('#worksN').textContent=n?`(${n})`:''}).catch(()=>{});await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome()})();
+(async function(){renderNav();applyTheme();const ab=$('#aiBatchBtn');if(ab)ab.innerHTML=IC.ai+' AI 整理 <span id="aiBatchHint"></span>';const ag=$('#aiGroupBtn');if(ag)ag.innerHTML=IC.ai+' AI 建议分组';fetch('/api/groups').then(r=>r.json()).then(j=>{const n=(j.groups||[]).length;$('#worksN').textContent=n?`(${n})`:''}).catch(()=>{});await loadCatFilter();await loadStats();loadDash();loadPending();chatWelcome();renderChatRes()})();
 </script>
 </body>
 </html>
