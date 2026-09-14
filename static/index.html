@@ -1080,7 +1080,6 @@ async function drSave(field, id){
   await loadPending();if(typeof search==='function')await search();
   refreshDrawer();
 }
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&_drawerId!=null)closeDrawer()});
 $('#drawerMask').addEventListener('click',closeDrawer);
 
 // ===== 待整理 =====
@@ -2086,7 +2085,7 @@ function viewerNext(){if(viewerFiles.length)viewerIdx=(viewerIdx+1)%viewerFiles.
 function viewerPrev(){if(viewerFiles.length)viewerIdx=(viewerIdx-1+viewerFiles.length)%viewerFiles.length;showViewerImage()}
 function closeViewer(e){if(e&&e.target!==e.currentTarget)return;$('#viewerMask').classList.remove('show')}
 async function deleteThumb(){if(!viewerFileId)return;if(!await uiConfirm({title:'删除缩略图', body:'将清空缩略图并删除图片文件。', okText:'删除'}))return;const r=await fetch('/api/delete-thumb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:viewerFileId})});const j=await r.json();if(j.ok){toast('缩略图已删除');closeViewer();loadPending();if(typeof search==='function')search()}else{toast('删除失败：'+(j.error||'未知错误'))}}
-document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev();if(e.key==='Escape')closeViewer()}})
+document.addEventListener('keydown',e=>{if($('#viewerMask').classList.contains('show')){if(e.key==='ArrowRight')viewerNext();if(e.key==='ArrowLeft')viewerPrev()}})
 
 // ===== 设置 =====
 async function loadConfig(){const r=await fetch('/api/config');const j=await r.json();$('#cfg-url').value=j.llm.base_url||'';$('#cfg-model').value=j.llm.model||'';$('#cfg-root').value=j.paths.library_root||'';$('#cfgStatus').textContent=j.llm.configured?'✓ 已配置':'（未配置模型）';window.LIB_ROOT=j.library_root||j.paths.library_root||'';const lat=$('#aiLatency');if(lat)lat.textContent=j.last_ai_latency_ms!=null?`上次 AI 调用 ${(j.last_ai_latency_ms/1000).toFixed(1)}s`:''}
@@ -2096,7 +2095,14 @@ async function saveConfig(){const fd={llm:{base_url:$('#cfg-url').value.trim(),m
 function openModal(title, bodyHtml){$('#modalTitle').innerHTML=title;$('#modalBody').innerHTML=bodyHtml;$('#modalMask').style.display='flex'}
 function closeModal(){$('#modalMask').style.display='none';if(_modalCloseCb){const cb=_modalCloseCb;_modalCloseCb=null;cb()}}
 function modalOutside(e){if(e.target.id==='modalMask')closeModal()}
-document.addEventListener('keydown',e=>{if($('#modalMask').style.display==='flex'&&e.key==='Escape')closeModal()})
+// Esc 分层关闭：一次只关最顶层（plan > modal > viewer > drawer），避免确认框连带关掉背后的抽屉/查看器
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if($('#planMask').classList.contains('show')){planClose();return}
+  if($('#modalMask').style.display==='flex'){closeModal();return}
+  if($('#viewerMask').classList.contains('show')){closeViewer();return}
+  if(_drawerId!=null)closeDrawer();
+})
 
 // ===== 教学闭环：手动纠正沉淀为规则 =====
 function teachRule(category){
