@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """merge_3mf 合并模块单元测试：拍平重编号、包围盒摆放、异常源。"""
 import io
+import os
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -200,3 +201,36 @@ def test_merge_export_api_rejections(client):
     assert "至少" in api(client, "/api/merge-export", data={"ids": [fid]})["error"]
     # 不存在的 id
     assert "不存在" in api(client, "/api/merge-export", data={"ids": [fid, 999999]})["error"]
+
+
+def _png():
+    return b"\x89PNG\r\n\x1a\n" + b"0" * 32  # 魔数合法的伪 PNG（_sniff_image_type 按字节识别）
+
+
+def test_merge_export_thumb_copied_from_source(client):
+    """缩略图选导：从源文件复制（非移动）缩略图给新记录；无图源选导入则保持无缩略图。"""
+    import server
+
+    ra = fetch(client, "/api/upload", files=[("file", "a.3mf", _make_3mf_bytes("模型A", "CNmt1"))])
+    rb = fetch(client, "/api/upload", files=[("file", "b.3mf", _make_3mf_bytes("模型B", "CNmt2"))])
+    fa, fb = ra["results"][0]["file"], rb["results"][0]["file"]
+    # 给 A 上传缩略图
+    up = fetch(client, "/api/thumbnail", data={"id": str(fa["id"])}, files=[("file", "t.png", _png())])
+    assert up["ok"]
+    src_thumb = up["thumb"]
+    # 合并时选 A 的缩略图
+    r = fetch(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]], "thumb_file_id": fa["id"]})
+    assert r["ok"], r
+    f = r["file"]
+    assert f["thumb"] and f["thumb"] != src_thumb          # 复制出新文件，而非沿用同名
+    assert os.path.exists(os.path.join(server.THUMB_DIR, f["thumb"]))
+    assert os.path.exists(os.path.join(server.THUMB_DIR, src_thumb))  # 源缩略图原样保留
+    # 选无图源（B 无缩略图也无摆盘图）→ 新记录无缩略图
+    r2 = fetch(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]], "thumb_file_id": fb["id"]})
+    assert r2["ok"] and not r2["file"]["thumb"]
+    # thumb_file_id 不是本次合并的源 → 忽略，不报错也不复制
+    r3 = fetch(client, "/api/upload", files=[("file", "c.3mf", _make_3mf_bytes("模型C", "CNmt3"))])
+    fc = r3["results"][0]["file"]
+    fetch(client, "/api/thumbnail", data={"id": str(fc["id"])}, files=[("file", "t.png", _png())])
+    r4 = fetch(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]], "thumb_file_id": fc["id"]})
+    assert r4["ok"] and not r4["file"]["thumb"]

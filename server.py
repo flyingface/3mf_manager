@@ -1024,6 +1024,29 @@ class Handler(BaseHTTPRequestHandler):
         with open(dest, "wb") as f:
             f.write(blob)
         rec = self._ingest(dest, sha256_hex=hashlib.sha256(blob).hexdigest())
+        # 可选：从某个源文件复制缩略图（thumb 优先，缺省退回首张摆盘图）。
+        # 复制而非移动，源图片文件原样不动；thumb_file_id 必须是本次合并的源之一。
+        try:
+            thumb_fid = int(data.get("thumb_file_id") or 0)
+        except (TypeError, ValueError):
+            thumb_fid = 0
+        if thumb_fid and thumb_fid in ids:
+            conn = db_conn()
+            srow = conn.execute("SELECT * FROM files WHERE id=?", (thumb_fid,)).fetchone()
+            cand = ""
+            if srow:
+                cand = (srow["thumb"] or "").strip()
+                if not cand and srow["plate_imgs"]:
+                    cand = srow["plate_imgs"].split(",")[0].strip()
+            if cand and cand == os.path.basename(cand):
+                src_img = os.path.join(THUMB_DIR, cand)
+                if os.path.isfile(src_img):
+                    tname = f"{rec['id']}_{int(time.time())}_{os.urandom(3).hex()}{os.path.splitext(cand)[1] or '.png'}"
+                    shutil.copyfile(src_img, os.path.join(THUMB_DIR, tname))
+                    conn.execute("UPDATE files SET thumb=? WHERE id=?", (tname, rec["id"]))
+                    conn.commit()
+                    rec = dict(conn.execute("SELECT * FROM files WHERE id=?", (rec["id"],)).fetchone())
+            conn.close()
         # 自动建组：新记录为主（is_primary），源文件为 component（与手动建组的角色口径一致）
         conn = db_conn()
         gname = os.path.splitext(os.path.basename(dest))[0]
