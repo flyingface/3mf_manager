@@ -41,6 +41,7 @@ import parse_3mf            # 复用解析器
 import db as dbm            # 存储层（schema/迁移/路径工具，显式传参）
 import classify             # 分类/别名/目录规划纯逻辑层
 import relate               # 确定性关联（design_id/geom_sig/词干聚类）
+import merge_3mf            # 3mf 拼盘合并（只读源，输出新包）
 
 # ---- 组合根：把 classify/db 的纯逻辑与运行时配置绑定并对外复用（兼容旧 API）----
 SEP = classify.SEP
@@ -982,6 +983,62 @@ class Handler(BaseHTTPRequestHandler):
             rec = self._ingest(dest, sha256_hex=h)
             results.append({"name": fname, "ok": True, "file": rec, "is_duplicate": bool(dup_info), "duplicate_of": dup_info})
         self._send(200, {"results": results})
+
+    def _api_merge_export(self, data):
+        """合并导出：按 ids 顺序把多个 3mf 拼盘合并为一个新 3mf，写入 library_root/exports/
+        并入库（pending 记录，走上传同款解析管线），同时自动建组——新记录为主模型、源文件为组件。
+        源文件全程只读。"""
+        try:
+            ids = [int(i) for i in (data.get("ids") or [])]
+        except (TypeError, ValueError):
+            self._send(400, {"error": "ids 必须是数字列表"}); return
+        if len(ids) < 2:
+            self._send(400, {"error": "至少选择 2 个模型才能合并"}); return
+        if len(ids) > 20:
+            self._send(400, {"error": "一次最多合并 20 个模型"}); return
+        conn = db_conn()
+        rows = []
+        for fid in ids:
+            row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+            if not row:
+                conn.close(); self._send(400, {"error": f"模型不存在：id={fid}"}); return
+            rows.append(row)
+        conn.close()
+        paths = []
+        for row in rows:
+            p = file_full_path(row)
+            if not p or not os.path.exists(p):
+                self._send(400, {"error": f"源文件缺失：{row['filename']}"}); return
+            paths.append(p)
+        base = merge_3mf.build_export_name(len(paths))[:-4]
+        try:
+            blob = merge_3mf.merge(paths, title=base)
+        except merge_3mf.MergeError as e:
+            self._send(400, {"error": str(e)}); return
+        export_dir = os.path.join(LIBRARY_ROOT, "exports")
+        os.makedirs(export_dir, exist_ok=True)
+        dest = os.path.join(export_dir, base + ".3mf")
+        i = 2
+        while os.path.exists(dest):
+            dest = os.path.join(export_dir, f"{base}_{i}.3mf"); i += 1
+        with open(dest, "wb") as f:
+            f.write(blob)
+        rec = self._ingest(dest, sha256_hex=hashlib.sha256(blob).hexdigest())
+        # 自动建组：新记录为主（is_primary），源文件为 component（与手动建组的角色口径一致）
+        conn = db_conn()
+        gname = os.path.splitext(os.path.basename(dest))[0]
+        cur = conn.execute("INSERT INTO asset_groups(name, kind, cover_file_id, created_at) VALUES(?,?,?,?)",
+                           (gname, "kit", rec["id"], time.strftime("%Y-%m-%d %H:%M:%S")))
+        gid = cur.lastrowid
+        conn.execute("INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,1,1)",
+                     (gid, rec["id"], "component", "high"))
+        for row in rows:
+            conn.execute("INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,0,1)",
+                         (gid, row["id"], "component", "high"))
+        conn.commit()
+        payload = api_group_payload(conn, gid)
+        conn.close()
+        self._send(200, {"ok": True, "file": rec, "group": payload})
 
     def _is_earliest_dup(self, conn, row):
         """SHA256 重复且本行不是最早副本则返回 False（不可归档）。"""
@@ -1970,6 +2027,7 @@ POST_ROUTES = {
     "/api/rules": Handler._api_rules,
     "/api/groups": Handler._api_groups,
     "/api/groups/get": Handler._api_groups_get,
+    "/api/merge-export": Handler._api_merge_export,
 }
 
 # 以 multipart/form-data 收请求体的端点（body 是二进制，不能走 JSON 预读）

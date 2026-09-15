@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from merge_3mf import MergeError, merge, build_export_name, apply_m, compose, parse_transform
+from tests.test_api import fetch, _make_3mf_bytes  # client fixture 在 conftest.py
 
 CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 
@@ -154,3 +155,48 @@ def test_merge_sources_untouched(tmp_path):
 
 def test_export_name():
     assert build_export_name(3, "20260915_120000") == "合并_3个模型_20260915_120000.3mf"
+
+
+# ---------------- /api/merge-export 端到端（client fixture 在 conftest.py） ----------------
+
+import json
+import urllib.request
+
+
+def test_merge_export_api_creates_record_and_group(client):
+    from tests.test_api import fetch as api
+
+    ra = api(client, "/api/upload", files=[("file", "a.3mf", _make_3mf_bytes("模型A", "CNme1"))])
+    rb = api(client, "/api/upload", files=[("file", "b.3mf", _make_3mf_bytes("模型B", "CNme2", verts=11))])
+    fa, fb = ra["results"][0]["file"], rb["results"][0]["file"]
+    snap = {fa["id"]: open(fa["abs_path"], "rb").read(), fb["id"]: open(fb["abs_path"], "rb").read()}
+
+    r = api(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]]})
+    assert r["ok"], r
+    f, g = r["file"], r["group"]
+    # 新记录：pending、位于 exports/、几何计数是两源之和
+    assert f["status"] == "pending"
+    assert f["rel_path"].replace("\\", "/").startswith("exports/")
+    assert f["vertices"] == 6 + 11
+    # 分组：3 名成员，新记录为主、源为组件，封面=新记录
+    assert g["stats"]["total"] == 3 and g["cover_file_id"] == f["id"]
+    by_fid = {m["file_id"]: m for m in g["members"]}
+    assert by_fid[f["id"]]["is_primary"] is True
+    assert by_fid[fa["id"]]["role"] == "component" and by_fid[fb["id"]]["role"] == "component"
+    assert not by_fid[fa["id"]]["is_primary"]
+    # 核心约束：源文件字节一字未动
+    for fid, p in ((fa["id"], fa["abs_path"]), (fb["id"], fb["abs_path"])):
+        assert open(p, "rb").read() == snap[fid]
+    # 组名与文件名一致（去后缀）
+    assert g["name"] == f["filename"][:-4]
+
+
+def test_merge_export_api_rejections(client):
+    from tests.test_api import fetch as api
+
+    ra = api(client, "/api/upload", files=[("file", "a.3mf", _make_3mf_bytes("模型A", "CNmr1"))])
+    fid = ra["results"][0]["file"]["id"]
+    # 少于 2 个
+    assert "至少" in api(client, "/api/merge-export", data={"ids": [fid]})["error"]
+    # 不存在的 id
+    assert "不存在" in api(client, "/api/merge-export", data={"ids": [fid, 999999]})["error"]
