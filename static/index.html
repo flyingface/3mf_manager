@@ -132,6 +132,11 @@ input::placeholder{color:var(--tert)}
 .th-wrap .th-meta{position:absolute;left:4px;bottom:4px;background:rgba(15,23,42,.55);color:#fff;font-size:10px;line-height:1;padding:4px 7px;border-radius:7px;pointer-events:none;font-variant-numeric:tabular-nums;backdrop-filter:blur(2px);white-space:nowrap;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis}
 .th-wrap .th-cam{position:absolute;right:4px;bottom:4px;width:24px;height:24px;border-radius:7px;border:none;background:rgba(15,23,42,.55);color:#fff;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;opacity:0;transition:opacity .15s,background .15s}
 .th-wrap:hover .th-cam{opacity:1}
+/* 多选模式：缩略图左上角选中圈；隐藏卡片上的其他交互点，整卡只做选中切换 */
+.th-wrap .th-sel{position:absolute;top:4px;left:4px;width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:rgba(15,23,42,.45);color:#fff;font-size:14px;line-height:1;display:none;align-items:center;justify-content:center;cursor:pointer;padding:0;z-index:2}
+.grid.multi .th-wrap .th-sel{display:flex}
+.th-wrap .th-sel.on{background:var(--primary);border-color:var(--primary)}
+.grid.multi .dotm,.grid.multi .th-cam,.grid.multi .ctx{display:none!important}
 .th-wrap .th-cam:hover{background:rgba(59,109,240,.9)}
 .card-hd .cb{flex:1;min-width:0;display:flex;flex-direction:column}
 .card-hd .rt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
@@ -497,6 +502,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <button class="tab" id="lt-works" onclick="libTab('works')">分组 <span id="worksN"></span></button>
           </div>
           <div style="display:flex;gap:8px">
+            <button class="btn ghost sm" id="multiBtn" onclick="toggleMultiMode()">☑ 多选</button>
             <button class="btn ghost sm" onclick="openGroupCreate()">＋ 新建分组</button>
             <button class="btn p sm" id="aiGroupBtn" onclick="aiGroupScan()">✦ AI 建议分组</button>
           </div>
@@ -508,6 +514,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <select id="f-status" onchange="libPage=1;search()"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied" selected>已归档</option></select>
             <button class="btn p" onclick="libPage=1;search()">查询</button>
           </div>
+          <div id="selBar" class="toolbar" style="display:none;margin-bottom:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:10px"></div>
           <div class="hint" style="margin-bottom:8px">语义搜索请用「智能对话」。</div>
           <div id="libWrap"></div>
         </div>
@@ -771,11 +778,14 @@ function cardHTML(f){
   const plates=(f.plate_imgs||'').split(',').filter(Boolean);
   const camTitle=f.thumb?'更换缩略图':'上传缩略图';
   const camBtn=`<button class="th-cam" title="${camTitle}" onclick="uploadThumb(${f.id});event.stopPropagation()">${IC.cam}</button>`;
+  // 多选模式：缩略图左上角选中圈，缩略图/详情条点击改为切换选中
+  const selBtn=_multiMode?`<button class="th-sel${_selIds.has(f.id)?' on':''}" title="选中/取消" onclick="selToggle(${f.id});event.stopPropagation()">✓</button>`:'';
+  const thClick=_multiMode?`selToggle(${f.id})`:`openViewer(${f.id})`;
   // 角标只承载体积（板数已由「摆盘×N」徽章表达；无预览图时才在角标补板数）
   const thMeta = `<span class="th-meta">${(!plates.length && f.plates)?f.plates+'板 · ':''}${f.size_mb}MB</span>`;
   const thumb=f.thumb
-    ?`<div class="th-wrap"><img class="th" src="/thumbs/${f.thumb}" onclick="openViewer(${f.id})" title="${esc(f.filename)}">${thMeta}${camBtn}</div>`
-    :`<div class="th-wrap"><div class="th empty" title="${esc(f.filename)}">未上传</div>${thMeta}${camBtn}</div>`;
+    ?`<div class="th-wrap"><img class="th" src="/thumbs/${f.thumb}" onclick="${thClick}" title="${esc(f.filename)}">${thMeta}${camBtn}${selBtn}</div>`
+    :`<div class="th-wrap"><div class="th empty" title="${esc(f.filename)}" ${_multiMode?`style="cursor:pointer" onclick="selToggle(${f.id})"`:''}>未上传</div>${thMeta}${camBtn}${selBtn}</div>`;
   const catPill=f.category?`<span class="pill cat">${esc(f.category)}</span>`:'';
   // 头部主标题：优先用别名（更短可读），无别名则用文件名（单行省略）
   const headTitle=(f.alias&&f.alias!==f.filename)?f.alias:f.filename;
@@ -811,7 +821,7 @@ function cardHTML(f){
       ${f.status==='applied'?'<div class="mi dg" onclick="returnToPending('+f.id+')">退回整理</div>':''}
       ${f.status==='pending'?'<div class="mi dg" onclick="delFile('+f.id+')">删除文件</div>':''}
     </div>
-    <div class="card-toggle" onclick="openDrawer(${f.id})"><span class="tri">▸</span> 详情与编辑</div>
+    <div class="card-toggle" onclick="${_multiMode?`selToggle(${f.id})`:`openDrawer(${f.id})`}"><span class="tri">▸</span> ${_multiMode?'选中/取消':'详情与编辑'}</div>
   </div>`;
 }
 function toggleMenu(ev,id,el){
@@ -1448,11 +1458,49 @@ function paintLib(){
   if(!libItems.length&&libTotal>0&&libPage>pages){libPage=pages;return search()}
   const w=$('#libWrap');
   if(!libItems.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}
-  let html=`<div class="hint" style="margin-bottom:10px">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</div><div class="grid">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';
+  let html=`<div class="hint" style="margin-bottom:10px">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</div><div class="grid${_multiMode?' multi':''}">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';
   html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;
   w.innerHTML=html;
 }
 function libGo(p){if(p<1)return;libPage=p;search()}
+
+// ===== 多选 + 合并导出（拼盘合并为 1 个新 3mf，入库并自动建组） =====
+let _multiMode=false,_selIds=new Set();
+function toggleMultiMode(force){
+  _multiMode=(force==null)?!_multiMode:!!force;
+  if(!_multiMode)_selIds.clear();
+  const mb=$('#multiBtn');if(mb){mb.classList.toggle('on',_multiMode);mb.textContent=_multiMode?'✕ 退出多选':'☑ 多选'}
+  renderSelBar();paintLib();
+}
+function selToggle(id){if(_selIds.has(id))_selIds.delete(id);else _selIds.add(id);renderSelBar();paintLib()}
+function selAll(){
+  const allOn=libItems.length&&libItems.every(f=>_selIds.has(f.id));
+  if(allOn)libItems.forEach(f=>_selIds.delete(f.id));else libItems.forEach(f=>_selIds.add(f.id));
+  renderSelBar();paintLib();
+}
+function renderSelBar(){
+  const bar=$('#selBar');if(!bar)return;
+  bar.style.display=_multiMode?'':'none';
+  if(!_multiMode)return;
+  const n=_selIds.size,allOn=libItems.length&&libItems.every(f=>_selIds.has(f.id));
+  bar.innerHTML=`<span class="hint" style="margin:0">已选 <b>${n}</b> 个${n<2?'（合并至少需要 2 个）':''}</span><span style="flex:1"></span>
+    <button class="btn ghost sm" onclick="selAll()">${allOn?'取消全选':'全选本页'}</button>
+    <button class="btn p sm" ${n<2?'disabled':''} onclick="mergeExport()">⛓ 合并导出</button>
+    <button class="btn ghost sm" onclick="toggleMultiMode(false)">退出</button>`;
+}
+async function mergeExport(){
+  const ids=[..._selIds];
+  if(ids.length<2){toast('至少选择 2 个模型才能合并');return}
+  if(!await uiConfirm({title:'合并导出',okText:'合并导出',okClass:'btn p',
+    body:`将把 <b>${ids.length}</b> 个模型拼盘合并为 <b>1 个新 3mf</b>：自动并排摆放，生成新记录入库（待整理），并创建分组——新文件为主、原文件为组件。<br><br>原文件保持不变；合并产物不含切片配置，打印前请用 Bambu Studio 重新切片。`}))return;
+  try{
+    const r=await fetch('/api/merge-export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+    const j=await r.json();
+    if(!r.ok){toast(j.error||'合并失败');return}
+    _selIds.clear();toggleMultiMode(false);loadStats();
+    toast(`已生成「${j.file.filename}」，分组「${j.group.name}」已创建`,{btnText:'去看待整理',onBtn(){switchTab('pending')}});
+  }catch(e){toast('合并失败：'+e.message)}
+}
 
 // ===== 作品视图（图管理） =====
 let _libTab='files',_worksCache=[];
