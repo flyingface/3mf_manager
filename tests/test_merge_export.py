@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """merge_3mf 合并模块单元测试：拍平重编号、包围盒摆放、异常源。"""
 import io
+import json
 import os
 import zipfile
 import xml.etree.ElementTree as ET
@@ -100,6 +101,95 @@ def test_merge_same_structure_sources_no_id_collision(tmp_path):
                    for o in objs for e in o.iter() for k in e.attrib)
 
 
+def _bambu_project_pkg(extruder=2, colors=("#FF0000", "#00FF00"), verts=4):
+    """Bambu 工程风格源：颜色在 Metadata 配置里（模型 XML 无颜色）——
+    project_settings.config 为 JSON 调色板，model_settings.config 按主文档
+    对象 id 记 extruder（1 基）。"""
+    main = f'''<model unit="millimeter" xmlns="{CORE}">
+<resources><object id="1" type="model"><components>
+<component objectid="2" path="3D/Objects/object_1.model"/>
+</components></object></resources>
+<build><item objectid="1"/></build></model>'''
+    part = f'''<model unit="millimeter" xmlns="{CORE}">
+<resources><object id="2"><mesh><vertices>{''.join(f'<vertex x="{i}" y="0" z="0"/>' for i in range(verts))}</vertices>
+<triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources>
+<build></build></model>'''
+    model_settings = (
+        '<?xml version="1.0" encoding="UTF-8"?><config>'
+        f'<object id="1"><metadata key="name" value="组合体"/>'
+        f'<metadata key="extruder" value="{extruder}"/></object></config>')
+    return _pkg({
+        "3D/3dmodel.model": main,
+        "3D/Objects/object_1.model": part,
+        "Metadata/project_settings.config": json.dumps({"filament_colour": list(colors)}),
+        "Metadata/model_settings.config": model_settings,
+    })
+
+
+def test_merge_colors_from_bambu_metadata(tmp_path):
+    """Bambu 工程源的颜色搬运：合成 basematerials + 三角形 pid/p1 按对象料槽上色；
+    无配置的源不上色。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_bambu_project_pkg(extruder=2, colors=("#FF0000", "#00FF00")))
+    pb.write_bytes(_simple_pkg())            # 无 Metadata → 不上色
+    data = merge([str(pa), str(pb)], title="上色")
+
+    root = _parse_merged(data)
+    res = root.find(f"{{{CORE}}}resources")
+    # 全资源（含 basematerials）id 唯一——pid 引用不得有歧义
+    all_ids = [el.get("id") for el in res]
+    assert len(all_ids) == len(set(all_ids)), f"资源 id 重复：{sorted(all_ids)}"
+    bms = res.findall(f"{{{CORE}}}basematerials")
+    assert len(bms) == 1 and bms[0].get("id") == "1"
+    # 调色板压缩到实际用到的料槽：源A 只用了 extruder=2 → 只保留 #00FF00
+    cols = [b.get("color") for b in bms[0].findall(f"{{{CORE}}}base")]
+    assert cols == ["#00FF00"], cols
+    byid = {o.get("id"): o for o in _objs(root)}
+    # 源A 的网格（4 顶点）：extruder=2 → 压缩后 p1=下标0；源B 的网格（6 顶点）：无 pid
+    painted = unpainted = None
+    for o in byid.values():
+        mesh = o.find(f"{{{CORE}}}mesh")
+        if mesh is None:
+            continue
+        n = len(mesh.find(f"{{{CORE}}}vertices"))
+        tr = mesh.find(f"{{{CORE}}}triangles")[0]
+        if n == 4:
+            painted = tr
+        elif n == 6:
+            unpainted = tr
+    assert painted.get("pid") == "1" and painted.get("p1") == "0"
+    assert unpainted.get("pid") is None and unpainted.get("p1") is None
+    # Bambu sidecar：料槽配置指向新对象 id 与合并后料槽号；调色板 JSON 与之一致。
+    # 无调色板的源也写对象名条目（不写 extruder）。
+    z = zipfile.ZipFile(io.BytesIO(data))
+    cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
+    entries = cfg.findall("object")
+    assert len(entries) == 2
+    with_ext = [e for e in entries
+                if any(m.get("key") == "extruder" for m in e.findall("metadata"))]
+    assert len(with_ext) == 1 and with_ext[0].get("id") in byid
+    md = {m.get("key"): m.get("value") for m in with_ext[0].findall("metadata")}
+    assert md.get("extruder") == "1" and md.get("name")
+    ps = json.loads(z.read("Metadata/project_settings.config").decode())
+    assert ps["filament_colour"] == ["#00FF00"] and ps["filament_type"] == ["PLA"]
+
+
+def test_merge_shelf_layout_wraps_row(tmp_path):
+    """摆盘货架式换行：两件超宽（>250mm 可用宽）模型，第二件换到下一行（z 错开 GAP）。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_simple_pkg(verts=301, item_tf="1 0 0 0 1 0 0 0 1 0 0 0"))   # 宽 300
+    pb.write_bytes(_simple_pkg(verts=301, item_tf="1 0 0 0 1 0 0 0 1 0 0 0"))
+    data = merge([str(pa), str(pb)], title="换行")
+    pts = _world_pts(data)
+    zs = sorted({p[2] for p in pts})
+    assert zs == [0.0, 5.0], f"应两行摆放，实际 z={zs}"
+    # 两行各自从 x=0 起摆
+    assert min(p[0] for p in pts if p[2] == 0.0) == 0
+    assert min(p[0] for p in pts if p[2] == 5.0) == 0
+
+
 def _parse_merged(data):
     z = zipfile.ZipFile(io.BytesIO(data))
     names = z.namelist()
@@ -130,7 +220,7 @@ def test_merge_flatten_renumber_and_layout(tmp_path):
     for o in objs:
         for comp in o.iter(f"{{{CORE}}}component"):
             assert not any(k.endswith("path") for k in comp.attrib)
-    # build：每个源一个 item，指向纯组件壳 wrapper（每壳 1 个 component）
+    # build：每个源一个 item（摆盘平移已并入 wrapper 组件的 transform，item 本身不再带）
     items = root.find(f"{{{CORE}}}build").findall(f"{{{CORE}}}item")
     assert len(items) == 2
     byid = {o.get("id"): o for o in objs}
@@ -138,21 +228,22 @@ def test_merge_flatten_renumber_and_layout(tmp_path):
         w = byid[it.get("objectid")]
         comps = w.find(f"{{{CORE}}}components")
         assert comps is not None and len(comps) == 1
-    tfs = [it.get("transform").split() for it in items]
-    assert [t[9] for t in sorted(tfs, key=lambda t: float(t[9]))] == ["-100", "0"]
-    # 顶点沿组件链映射到世界坐标：A 归零后 x∈[0,5]，B x∈[10,14] —— 全局 [0,14] 且互不重叠
-    xs = _world_xs(data)
-    assert min(xs) == 0 and max(xs) == 14
-    assert all(x <= 5 or x >= 10 for x in xs)
+        assert it.get("transform") in (None, "1 0 0 0 1 0 0 0 1 0 0 0")
+    # 顶点沿组件链映射到世界坐标：A 归零后 x∈[0,5]，B 挨着排 → x∈[10,14]
+    xs = _world_pts(data)
+    assert min(p[0] for p in xs) == 0 and max(p[0] for p in xs) == 14
+    assert all(p[0] <= 5 or p[0] >= 10 for p in xs)
+    # 逐件摆盘：所有 item 底面都贴床（y 最小值为 0）
+    assert min(p[1] for p in xs) == 0
 
 
-def _world_xs(data):
-    """遍历合并产物的 build→component 树，返回所有 mesh 顶点的世界 x 坐标。"""
+def _world_pts(data):
+    """遍历合并产物的 build→component 树，返回所有 mesh 顶点的世界坐标 (x,y,z)。"""
     core = f"{{{CORE}}}"
     z = zipfile.ZipFile(io.BytesIO(data))
     root = ET.fromstring(z.read("3D/3dmodel.model"))
     byid = {o.get("id"): o for o in root.find(core + "resources").findall(core + "object")}
-    xs = []
+    pts = []
 
     def walk(oid, m):
         o = byid[str(oid)]
@@ -160,13 +251,13 @@ def _world_xs(data):
         if mesh is not None:
             for v in mesh.find(core + "vertices"):
                 p = (float(v.get("x", 0)), float(v.get("y", 0)), float(v.get("z", 0)))
-                xs.append(apply_m(m, p)[0])
+                pts.append(apply_m(m, p))
         for c in o.iter(core + "component"):
             walk(c.get("objectid"), compose(parse_transform(c.get("transform")), m))
 
     for it in root.find(core + "build").findall(core + "item"):
         walk(it.get("objectid"), parse_transform(it.get("transform")))
-    return xs
+    return pts
 
 
 def test_merge_title_and_unit(tmp_path):
