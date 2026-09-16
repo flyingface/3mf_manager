@@ -181,6 +181,15 @@ def _resolve_part(names, base, ref, srcname):
     raise MergeError(f"{srcname}：找不到被引用的部件 {ref}")
 
 
+def _strip_production_attrs(el):
+    """剥掉 production 扩展属性（p:UUID 等）。拍平后的新包不声明 production 语义，
+    而同一模型合并两份时 UUID 必然重复，留着会触发切片器的唯一性冲突。"""
+    prod_decl = "{%s}" % PROD_NS
+    for e in el.iter():
+        for k in [k for k in e.attrib if k.startswith(prod_decl)]:
+            del e.attrib[k]
+
+
 # ---------------- 包围盒 ----------------
 
 def _vertex_count(mesh):
@@ -239,22 +248,25 @@ def merge(paths, title=""):
     unit = units.pop() if units else "millimeter"
 
     # ---- 统一重编号（对象与材质共用一个 id 空间），收集输出资源元素 ----
-    idmap = {}     # (doc, orig_id) -> new_id
+    # 键必须带源序号：所有源的主文档都叫 3D/3dmodel.model，且原始对象 id 常撞号，
+    # 不带序号时后一个源会覆盖前一个源的编号，产出重复 id（切片器报"加载失败"）。
+    idmap = {}     # (src_idx, doc, orig_id) -> new_id
     objects_out, materials_out = [], []
     next_id = 1
 
-    for s in sources:
+    for si, s in enumerate(sources):
         for key in list(s.materials.keys()) + list(s.objects.keys()):
-            idmap[key] = next_id
+            idmap[(si,) + key] = next_id
             next_id += 1
-    for s in sources:
+    for si, s in enumerate(sources):
         for key, el in s.materials.items():
             c = copy.deepcopy(el)
-            c.set("id", str(idmap[key]))
+            c.set("id", str(idmap[(si,) + key]))
+            _strip_production_attrs(c)
             materials_out.append(c)
         for key, el in s.objects.items():
             c = copy.deepcopy(el)
-            c.set("id", str(idmap[key]))
+            c.set("id", str(idmap[(si,) + key]))
             for comp in c.iter(_q("component")):
                     # 拍平：跨部件引用先按 path 定位目标文档，再删除 path、改写 objectid
                     ref = comp.get(f"{{{PROD_NS}}}path") or comp.get("path")
@@ -263,28 +275,33 @@ def merge(paths, title=""):
                     cid = comp.get("objectid")
                     if not cid:
                         raise MergeError(f"{s.name}：component 缺少 objectid")
-                    nk = idmap.get((ref or key[0], int(cid)))
+                    nk = idmap.get((si, ref or key[0], int(cid)))
                     if nk is None:
                         raise MergeError(f"{s.name}：component 引用了不存在的对象 {cid}")
                     comp.set("objectid", str(nk))
-            # 材质引用改写（object 与 triangle 上的 pid、object 的 materialid）
+            # 材质引用改写（object 与 triangle 上的 pid、object 的 materialid）。
+            # 资源通常与对象同文档，但 Bambu 把 basematerials 放在主文档，
+            # 因此先查对象所在文档，再回退主文档。
             for owner in [c] + list(c.iter(_q("triangle"))):
                 for attr in ("materialid", "pid"):
                     v = owner.get(attr)
                     if v and v.isdigit():
-                        nk = idmap.get((key[0], int(v)))
+                        nk = idmap.get((si, key[0], int(v)))
+                        if nk is None:
+                            nk = idmap.get((si, s.main_doc, int(v)))
                         if nk is not None:
                             owner.set(attr, str(nk))
+            _strip_production_attrs(c)
             objects_out.append(c)
 
     # ---- 每个源包一个 wrapper，保留其 build item 的原始 transform ----
     wrappers = []
-    for s in sources:
+    for si, s in enumerate(sources):
         w = ET.Element(_q("object"), {"id": str(next_id), "type": "model"})
         next_id += 1
         comps = ET.SubElement(w, _q("components"))
         for oid, ts in s.items:
-            nk = idmap.get((s.main_doc, oid))
+            nk = idmap.get((si, s.main_doc, oid))
             if nk is None:
                 raise MergeError(f"{s.name}：build 引用了不存在的对象 {oid}")
             attrs = {"objectid": str(nk)}

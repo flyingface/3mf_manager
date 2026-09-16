@@ -44,6 +44,62 @@ def _bambu_like_pkg():
     return _pkg({"3D/3dmodel.model": main, "3D/Objects/object_2.model": part})
 
 
+PROD = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+
+
+def _twin_pkg(verts, uid):
+    """与另一份 twin 包内部文档名/对象 id 完全相同的源（同模型两个版本的常态），
+    主文档与部件都带 p:UUID。verts 区分两份几何，防止内容串源测不出来。"""
+    main = f'''<model unit="millimeter" xmlns="{CORE}" xmlns:p="{PROD}">
+<resources><object id="1" type="model" p:UUID="aaaa0000-0000-0000-0000-00000000000{uid}"><components>
+<component objectid="2" p:UUID="aaaa0001-0000-0000-0000-00000000000{uid}" p:path="3D/Objects/object_1.model"/>
+</components></object></resources>
+<build><item objectid="1"/></build></model>'''
+    part = f'''<model unit="millimeter" xmlns="{CORE}" xmlns:p="{PROD}">
+<resources><object id="2" p:UUID="aaaa0002-0000-0000-0000-00000000000{uid}"><mesh><vertices>{''.join(f'<vertex x="{i}" y="0" z="0"/>' for i in range(verts))}</vertices>
+<triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources>
+<build></build></model>'''
+    return _pkg({"3D/3dmodel.model": main, "3D/Objects/object_1.model": part})
+
+
+def test_merge_same_structure_sources_no_id_collision(tmp_path):
+    """两个源主文档同名（3D/3dmodel.model）且对象 id 撞号时，重编号必须按源隔离：
+    不得产出重复 id（会导致 Bambu 报加载失败/无几何），装配树也不得串到对方源。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_twin_pkg(verts=5, uid=1))
+    pb.write_bytes(_twin_pkg(verts=7, uid=2))
+    data = merge([str(pa), str(pb)], title="撞号回归")
+
+    core = f"{{{CORE}}}"
+    root = _parse_merged(data)
+    objs = _objs(root)
+    ids = [o.get("id") for o in objs]
+    assert len(ids) == len(set(ids)), f"重复 id：{ids}"
+    # 引用完整性：build item -> wrapper -> component -> mesh 对象全部可解析
+    byid = {o.get("id"): o for o in objs}
+    for it in root.find(core + "build").findall(core + "item"):
+        w = byid[it.get("objectid")]
+        for comp in w.iter(core + "component"):
+            assert comp.get("objectid") in byid
+    # 不串源：沿 build item 子树递归收集 mesh，两个源分别是 5 顶点 / 7 顶点
+    def mesh_verts(oid):
+        o = byid[oid]
+        mesh = o.find(core + "mesh")
+        n = [len(mesh.find(core + "vertices"))] if mesh is not None else []
+        for comp in o.iter(core + "component"):
+            n += mesh_verts(comp.get("objectid"))
+        return n
+
+    vert_counts = sorted(sum((mesh_verts(it.get("objectid")) for
+                              it in root.find(core + "build").findall(core + "item")), []))
+    assert vert_counts == [5, 7]
+    # 拍平输出不残留 production 扩展属性
+    assert not any(k.startswith("{" + PROD + "}") for o in objs for k in o.attrib)
+    assert not any(k.startswith("{" + PROD + "}")
+                   for o in objs for e in o.iter() for k in e.attrib)
+
+
 def _parse_merged(data):
     z = zipfile.ZipFile(io.BytesIO(data))
     names = z.namelist()
