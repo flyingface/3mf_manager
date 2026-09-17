@@ -2,6 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.6.3] - 2026-09-17
+
+### 修复
+- **合并导出颜色仍丢失（"3mf 文件配置无效，仅加载几何数据"）**：Bambu 只在模型文档 `<metadata name="Application">` 为 BambuStudio 标识时才按自家工程加载——否则丢弃 `project_settings.config` 的料槽表，所有对象回落默认单色。现产物 Application 写为 `BambuStudio-<版本>`（出处改由 Description 元数据保留）
+- **project_settings 以第一个带配置源的完整 JSON 为基底**（约 570 键，含 `filament_settings_id` 等预设映射），并把**所有按料槽对齐的数组逐块等比扩缩**到合并后的料槽数——这些数组有 8/16/32/64 多种长度档（含冲刷矩阵 N×N），只对齐直排数组会因长度自相矛盾被 Bambu 整包判无效；随后覆盖 `filament_colour`/`filament_type` 为压缩后的合并调色板
+- **model_settings.config 补齐 `<part>` 子树**（名称、列主序 4x4 矩阵、mesh_stat 面数），与 Bambu 原生结构一致；摆盘起点跳过 `bed_exclude_area`（如 P1S 左前角 18×28mm 切料器区），避免对象贴排除区告警
+- 验证：Bambu CLI 无头回写闭环——合并产物被 Bambu 完整加载后重新导出，7 色料槽表与 12 个对象的料槽映射逐一保留
+
 ## [2.6.2] - 2026-09-16
 
 ### 修复

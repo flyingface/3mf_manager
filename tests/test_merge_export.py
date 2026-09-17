@@ -121,7 +121,11 @@ def _bambu_project_pkg(extruder=2, colors=("#FF0000", "#00FF00"), verts=4):
     return _pkg({
         "3D/3dmodel.model": main,
         "3D/Objects/object_1.model": part,
-        "Metadata/project_settings.config": json.dumps({"filament_colour": list(colors)}),
+        "Metadata/project_settings.config": json.dumps({
+            "filament_colour": list(colors),
+            "filament_type": ["PLA"] * len(colors),
+            "filament_diameter": ["1.75"] * len(colors),
+        }),
         "Metadata/model_settings.config": model_settings,
     })
 
@@ -173,6 +177,53 @@ def test_merge_colors_from_bambu_metadata(tmp_path):
     assert md.get("extruder") == "1" and md.get("name")
     ps = json.loads(z.read("Metadata/project_settings.config").decode())
     assert ps["filament_colour"] == ["#00FF00"] and ps["filament_type"] == ["PLA"]
+    # 按料槽对齐的数组随合并后的料槽数截断（2 槽 → 1 槽）
+    assert ps["filament_diameter"] == ["1.75"]
+    # Application 元数据必须是 BambuStudio 标识，否则 Bambu 不加载料槽表（颜色丢失）
+    metas = {m.get("name"): m.text for m in root.findall(f"{{{CORE}}}metadata")}
+    assert metas.get("Application", "").startswith("BambuStudio")
+    assert metas.get("Description") == "3MF Manager 合并导出"
+
+
+def test_merge_project_settings_arrays_extended(tmp_path):
+    """基底 project_settings 的按料槽数组在合并料槽数变多时向后扩展（沿用末槽设置）。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_bambu_project_pkg(extruder=1, colors=("#FF0000",)))
+    # 源B：无 Metadata 的普通源不上色，但源A 的 1 槽基底要扩成 1 槽（不变）——
+    # 这里用另一个带 1 色配置的源使合并后为 2 槽，验证数组从 1 扩到 2。
+    main = f'''<model unit="millimeter" xmlns="{CORE}">
+<resources><object id="1" type="model"><components>
+<component objectid="2" path="3D/Objects/object_1.model"/>
+</components></object></resources>
+<build><item objectid="1"/></build></model>'''
+    part = f'''<model unit="millimeter" xmlns="{CORE}">
+<resources><object id="2"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="2" y="0" z="0"/></vertices>
+<triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources>
+<build></build></model>'''
+    pb.write_bytes(_pkg({
+        "3D/3dmodel.model": main,
+        "3D/Objects/object_1.model": part,
+        "Metadata/project_settings.config": json.dumps({
+            "filament_colour": ["#00FF00"], "filament_type": ["PLA"]}),
+        "Metadata/model_settings.config":
+            '<?xml version="1.0" encoding="UTF-8"?><config>'
+            '<object id="1"><metadata key="extruder" value="1"/></object></config>',
+    }))
+    data = merge([str(pa), str(pb)], title="扩数组")
+
+    zz = zipfile.ZipFile(io.BytesIO(data))
+    ps = json.loads(zz.read("Metadata/project_settings.config").decode())
+    assert ps["filament_colour"] == ["#FF0000", "#00FF00"]
+    # 基底（源A）只有 1 槽的 filament_diameter → 扩到 2 槽沿用末槽
+    assert ps["filament_diameter"] == ["1.75", "1.75"]
+    # 源B 的 filament_type 只有键没有对齐数组时由合并类型覆盖
+    assert ps["filament_type"] == ["PLA", "PLA"]
+    # 两源的对象料槽分别指向 1 / 2
+    cfg = ET.fromstring(zz.read("Metadata/model_settings.config"))
+    exts = [{m.get("key"): m.get("value") for m in o.findall("metadata")}
+            for o in cfg.findall("object")]
+    assert sorted(e["extruder"] for e in exts if "extruder" in e) == ["1", "2"]
 
 
 def test_merge_shelf_layout_wraps_row(tmp_path):
@@ -184,10 +235,10 @@ def test_merge_shelf_layout_wraps_row(tmp_path):
     data = merge([str(pa), str(pb)], title="换行")
     pts = _world_pts(data)
     zs = sorted({p[2] for p in pts})
-    assert zs == [0.0, 5.0], f"应两行摆放，实际 z={zs}"
-    # 两行各自从 x=0 起摆
-    assert min(p[0] for p in pts if p[2] == 0.0) == 0
-    assert min(p[0] for p in pts if p[2] == 5.0) == 0
+    # 测试基底无 bed_exclude_area → 起摆 z=边距+间距=8，第二行再错开 GAP=5
+    assert zs == [8.0, 13.0], f"应两行摆放，实际 z={zs}"
+    assert min(p[0] for p in pts if p[2] == 8.0) == 3
+    assert min(p[0] for p in pts if p[2] == 13.0) == 3
 
 
 def _parse_merged(data):
@@ -231,8 +282,9 @@ def test_merge_flatten_renumber_and_layout(tmp_path):
         assert it.get("transform") in (None, "1 0 0 0 1 0 0 0 1 0 0 0")
     # 顶点沿组件链映射到世界坐标：A 归零后 x∈[0,5]，B 挨着排 → x∈[10,14]
     xs = _world_pts(data)
-    assert min(p[0] for p in xs) == 0 and max(p[0] for p in xs) == 14
-    assert all(p[0] <= 5 or p[0] >= 10 for p in xs)
+    # 起摆点留床面安全边距 3mm：A x∈[3,8]，B 挨着排 → x∈[13,17]
+    assert min(p[0] for p in xs) == 3 and max(p[0] for p in xs) == 17
+    assert all(p[0] <= 8 or p[0] >= 13 for p in xs)
     # 逐件摆盘：所有 item 底面都贴床（y 最小值为 0）
     assert min(p[1] for p in xs) == 0
 

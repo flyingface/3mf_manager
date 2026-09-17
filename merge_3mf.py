@@ -52,6 +52,10 @@ MAX_VERTSample = 100_000   # 包围盒顶点抽样上限
 BED_MM = 256        # 摆盘参考床面（Bambu P1/A1 系列 256x256）
 MARGIN_MM = 3       # 床面安全边距
 USABLE_MM = BED_MM - 2 * MARGIN_MM
+# Bambu 只在模型文档的 Application 元数据带 BambuStudio 标识时才按自家工程
+# 加载（否则丢弃 project_settings 的料槽表并提示"仅加载几何数据"）。
+# 取值与用户常用版本一致，避免触发"由旧版本生成"之类的版本审查。
+BAMBU_APP_TAG = "BambuStudio-02.08.02.61"
 
 
 class MergeError(Exception):
@@ -116,7 +120,7 @@ def _translation(tx, ty, tz):
 
 class _Source:
     __slots__ = ("path", "name", "unit", "objects", "materials", "items", "main_doc",
-                 "palette", "fil_types", "obj_extruder")
+                 "palette", "fil_types", "obj_extruder", "project_settings")
 
     def __init__(self, path):
         self.path = path
@@ -129,6 +133,7 @@ class _Source:
         self.palette = []    # filament_colour 调色板（尽力读取，读不到为空）
         self.fil_types = []  # filament_type，与 palette 对齐
         self.obj_extruder = {}  # 主文档对象 id -> 1 基料槽号（model_settings.config）
+        self.project_settings = None  # 完整的 project_settings JSON（dict），作产物基底
 
 
 def _load_source(path):
@@ -203,9 +208,11 @@ def _load_color_info(z, src):
         src.palette = [c for c in map(str, cols) if re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", c)]
         types = d.get("filament_type") or []
         src.fil_types = [str(t) for t in types][:len(src.palette)]
+        src.project_settings = d if isinstance(d, dict) and d else None
     except Exception:
         src.palette = []
         src.fil_types = []
+        src.project_settings = None
     try:
         cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
         for obj in cfg.iter("object"):
@@ -413,9 +420,19 @@ def merge(paths, title=""):
     # 料槽按对象上色），item 按世界包围盒货架式排进床面 ----
     # 只动 X/Z（3MF 规范 Y 轴朝上），Y 底面对齐到 0（打印床）；本行放不下换一行。
     # 源按顺序依次排，前面的源占前面的格子，保持"先来先摆"的拼盘语序。
+    # 起点跳过打印机 bed_exclude_area（如 P1S 左前角切料器区 18x28mm）。
+    base_ps = next((s.project_settings for s in sources if s.project_settings), None)
+    excl_top = 0.0
+    if base_ps:
+        pts = []
+        for r in base_ps.get("bed_exclude_area") or []:
+            mm_ = re.fullmatch(r"(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)", str(r))
+            if mm_:
+                pts.append((float(mm_.group(1)), float(mm_.group(2))))
+        excl_top = max((y for _, y in pts), default=0.0)
     wrappers = []
-    cfg_entries = []   # (wrapper_id, 对象名, 全局料槽号 or None)
-    cx, cz, row_d = 0.0, 0.0, 0.0
+    cfg_entries = []   # (wrapper_id, 对象名, 全局料槽号 or None, [(矩阵16, 面数), ...])
+    cx, cz, row_d = MARGIN_MM, excl_top + GAP_MM + MARGIN_MM, 0.0
     for si, s in enumerate(sources):
         stem = posixpath.splitext(s.name)[0]
         for k, ((oid, ts), (lo, hi)) in enumerate(zip(s.items, _item_boxes(s)), 1):
@@ -424,20 +441,50 @@ def merge(paths, title=""):
             if nk is None:
                 raise MergeError(f"{s.name}：build 引用了不存在的对象 {oid}")
             wx = hi[0] - lo[0]
-            if cx > 0 and cx + wx > USABLE_MM:
-                cx, cz, row_d = 0.0, cz + row_d + GAP_MM, 0.0
-            tf = compose(parse_transform(ts), _translation(cx - lo[0], -lo[1], cz - lo[2]))
+            if cx > MARGIN_MM and cx + wx > USABLE_MM:
+                cx, cz, row_d = MARGIN_MM, cz + row_d + GAP_MM, 0.0
+            placement = compose(parse_transform(ts), _translation(cx - lo[0], -lo[1], cz - lo[2]))
+            tf = fmt_transform(placement)
             wid = str(next_id)
             next_id += 1
             w = ET.Element(_q("object"), {"id": wid, "type": "model"})
             comps = ET.SubElement(w, _q("components"))
-            ET.SubElement(comps, _q("component"),
-                          {"objectid": nk, "transform": fmt_transform(tf)})
+            ET.SubElement(comps, _q("component"), {"objectid": nk, "transform": tf})
             wrappers.append(w)
+            # 展开该 item 的部件引用树：model_settings 里每个网格引用一条 <part>
+            # （带物体坐标系下的 4x4 矩阵与面数），缺 part 会被 Bambu 判配置无效
+            parts = []
+
+            def walk_refs(key, mm):
+                obj = s.objects.get(key)
+                if obj is None:
+                    return
+                mesh = obj.find(_q("mesh"))
+                if mesh is not None:
+                    trs = mesh.find(_q("triangles"))
+                    r0, r1, r2, t = mm
+                    # Bambu 的 part matrix 是列主序 4x4：每 4 个一组为基向量+平移
+                    mat16 = " ".join(f"{x:.17g}" for x in (
+                        r0[0], r1[0], r2[0], t[0],
+                        r0[1], r1[1], r2[1], t[1],
+                        r0[2], r1[2], r2[2], t[2],
+                        0.0, 0.0, 0.0, 1.0))
+                    parts.append((mat16, len(trs) if trs is not None else 0))
+                    return
+                comps_el = obj.find(_q("components"))
+                for comp in (comps_el if comps_el is not None else []):
+                    cid = comp.get("objectid")
+                    if not cid or not cid.isdigit():
+                        continue
+                    ref = comp.get(f"{{{PROD_NS}}}path") or comp.get("path")
+                    walk_refs((ref or key[0], int(cid)),
+                              compose(parse_transform(comp.get("transform") or ""), mm))
+
+            walk_refs((s.main_doc, oid), placement)
             g_e = None
             if s.palette and e0 in e2is[si]:
                 g_e = pal_offsets[si] + e2is[si][e0] + 1   # Bambu 料槽 1 基
-            cfg_entries.append((wid, f"{stem}_{k}", g_e))
+            cfg_entries.append((wid, f"{stem}_{k}", g_e, parts))
             cx += wx + GAP_MM
             row_d = max(row_d, hi[2] - lo[2])
 
@@ -445,7 +492,8 @@ def merge(paths, title=""):
     model = ET.Element(_q("model"), {"unit": unit})
     meta = ET.SubElement(model, _q("metadata"), {"name": "Title"})
     meta.text = title or f"合并_{len(sources)}个模型"
-    for name, text in (("Application", "3MF Manager 合并导出"),
+    for name, text in (("Application", BAMBU_APP_TAG),
+                       ("Description", "3MF Manager 合并导出"),
                        ("CreationDate", time.strftime("%Y-%m-%dT%H:%M:%S"))):
         m = ET.SubElement(model, _q("metadata"), {"name": name})
         m.text = text
@@ -479,19 +527,55 @@ def merge(paths, title=""):
                    'Target="/3D/3dmodel.model"/>'
                    "</Relationships>")
         z.writestr("3D/3dmodel.model", doc)
-        # Bambu sidecar 配置：对象名/料槽（model_settings.config）与调色板
-        # （project_settings.config，Bambu 存 JSON）。料槽号指向合并后的调色板。
+        # Bambu sidecar 配置：对象名/料槽（model_settings.config）与项目设置
+        # （project_settings.config）。料槽号指向合并后的调色板。
         if cfg_entries and bases:
             cfg = ET.Element("config")
-            for wid, nm, g_e in cfg_entries:
+            for wid, nm, g_e, parts in cfg_entries:
                 o = ET.SubElement(cfg, "object", {"id": wid})
                 ET.SubElement(o, "metadata", {"key": "name", "value": nm})
                 if g_e is not None:
                     ET.SubElement(o, "metadata", {"key": "extruder", "value": str(g_e)})
+                for i, (mat16, fc) in enumerate(parts, 1):
+                    pe = ET.SubElement(o, "part", {"id": str(i), "subtype": "normal_part"})
+                    ET.SubElement(pe, "metadata", {"key": "name", "value": f"{nm}_{i}"})
+                    ET.SubElement(pe, "metadata", {"key": "matrix", "value": mat16})
+                    ET.SubElement(pe, "mesh_stat", {"face_count": str(fc), "edges_fixed": "0",
+                                                    "degenerate_facets": "0", "facets_removed": "0",
+                                                    "facets_reversed": "0", "backwards_edges": "0"})
             z.writestr("Metadata/model_settings.config",
                        '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(cfg, encoding="unicode"))
+            # project_settings 必须是 Bambu 认可的完整结构（含 filament_settings_id
+            # 等几十个按料槽对齐的数组），只写颜色会被判"配置无效"而整包丢弃。
+            # 因此以第一个带配置的源为基底，把按料槽对齐的数组扩/截到合并后的
+            # 料槽数（多出的沿用该源最后一槽的设置），再覆盖颜色与类型。
+            # 注意数组有多种长度档：len=old_n 的直排、k*old_n 的分块（如
+            # flush_volumes_matrix 的 N×N 矩阵），必须逐块等比扩缩，否则长度
+            # 自相矛盾，Bambu 校验不过会丢弃整个配置。
+            base = base_ps
+            if base is not None:
+                ps = copy.deepcopy(base)
+                old_n = len(ps.get("filament_colour") or [])
+                new_n = len(bases)
+                if old_n and new_n != old_n:
+                    for v in ps.values():
+                        if not isinstance(v, list) or not v or len(v) % old_n:
+                            continue
+                        nv = []
+                        for i in range(0, len(v), old_n):
+                            blk = v[i:i + old_n]
+                            if new_n > old_n:
+                                blk = blk + [blk[-1]] * (new_n - old_n)
+                            else:
+                                blk = blk[:new_n]
+                            nv.extend(blk)
+                        v[:] = nv
+            else:
+                ps = {}
+            ps["filament_colour"] = list(bases)
+            ps["filament_type"] = list(ftypes)
             z.writestr("Metadata/project_settings.config",
-                       json.dumps({"filament_colour": bases, "filament_type": ftypes}))
+                       json.dumps(ps, ensure_ascii=False))
     return buf.getvalue()
 
 
