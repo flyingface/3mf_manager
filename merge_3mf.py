@@ -30,6 +30,7 @@ basematerials 并给三角形写 pid/p1，供遵循规范的工具用（Bambu �
 import copy
 import io
 import json
+import math
 import posixpath
 import re
 import time
@@ -52,6 +53,18 @@ MAX_VERTSample = 100_000   # 包围盒顶点抽样上限
 BED_MM = 256        # 摆盘参考床面（Bambu P1/A1 系列 256x256）
 MARGIN_MM = 3       # 床面安全边距
 USABLE_MM = BED_MM - 2 * MARGIN_MM
+# Bambu 的多板在内部坐标系里按网格并排（GUI reload_all_objects 按实例包围盒
+# 与各板矩形相交决定归属），板间距 = 板宽 × 1/5（PartPlate 的
+# LOGICAL_PART_PLATE_GAP）。产物必须把第 k 块板的对象平移到该板的虚拟床区，
+# 否则全部对象会被并进第一块板。
+PLATE_STRIDE_MM = BED_MM * 1.2
+
+
+def _bambu_plate_cols(n):
+    """照抄 PartPlateList::compute_colum_count 的列数公式。"""
+    v = math.sqrt(n)
+    r = round(v)
+    return int(r + 1) if v > r else int(r)
 # Bambu 只在模型文档的 Application 元数据带 BambuStudio 标识时才按自家工程
 # 加载（否则丢弃 project_settings 的料槽表并提示"仅加载几何数据"）。
 # 取值与用户常用版本一致，避免触发"由旧版本生成"之类的版本审查。
@@ -120,7 +133,7 @@ def _translation(tx, ty, tz):
 
 class _Source:
     __slots__ = ("path", "name", "unit", "objects", "materials", "items", "main_doc",
-                 "palette", "fil_types", "obj_extruder", "project_settings")
+                 "palette", "fil_types", "obj_extruder", "project_settings", "plates")
 
     def __init__(self, path):
         self.path = path
@@ -134,6 +147,7 @@ class _Source:
         self.fil_types = []  # filament_type，与 palette 对齐
         self.obj_extruder = {}  # 主文档对象 id -> 1 基料槽号（model_settings.config）
         self.project_settings = None  # 完整的 project_settings JSON（dict），作产物基底
+        self.plates = []     # [{"plater_id","name","objects":[oid], "imgs":{key:zip路径}}]，无板为空
 
 
 def _load_source(path):
@@ -196,6 +210,7 @@ def _load_source(path):
         if not src.items:
             raise MergeError(f"{src.name}：没有可导出的构建对象（build 为空）")
         _load_color_info(z, src)
+        _load_plates(z, src)
     return src
 
 
@@ -225,6 +240,38 @@ def _load_color_info(z, src):
                     break
     except Exception:
         pass
+
+
+PLATE_IMG_KEYS = ("thumbnail_file", "thumbnail_no_light_file", "top_file", "pick_file")
+
+
+def _load_plates(z, src):
+    """解析 model_settings.config 的 <plate> 段：板号、板名、板上的对象与预览图引用。
+    无板段（普通 3mf）保持空列表，合并时整包视为一块板。"""
+    try:
+        cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
+    except Exception:
+        return
+    names = {n.lower(): n for n in z.namelist()}
+    for idx, pl in enumerate(cfg.iter("plate"), 1):
+        pid, name, objs, imgs = None, None, [], {}
+        for md in pl.findall("metadata"):
+            k, v = md.get("key"), md.get("value") or ""
+            if k == "plater_id" and v.isdigit():
+                pid = int(v)
+            elif k == "plater_name" and v.strip():
+                name = v.strip()
+            elif k in PLATE_IMG_KEYS and v.strip():
+                hit = names.get(v.strip().replace("\\", "/").lstrip("/").lower())
+                if hit:
+                    imgs[k] = hit
+        for mi in pl.findall("model_instance"):
+            for md in mi.findall("metadata"):
+                if md.get("key") == "object_id" and (md.get("value") or "").isdigit():
+                    objs.append(int(md.get("value")))
+        if objs:
+            src.plates.append({"plater_id": pid or idx, "name": name,
+                               "objects": objs, "imgs": imgs})
 
 
 def _resolve_part(names, base, ref, srcname):
@@ -291,8 +338,15 @@ def _item_boxes(src):
 
 # ---------------- 合并 ----------------
 
-def merge(paths, title=""):
-    """合并多个 3mf -> 新 3mf 的 ZIP 字节。paths 顺序即摆放顺序。"""
+def merge(paths, title="", mode="plates", plate_filter=None):
+    """合并多个 3mf -> 新 3mf 的 ZIP 字节。paths 顺序即板的先后语序。
+
+    mode="plates"（默认，各自落板）：保留每个源的板结构——每块源板成为产物的
+    一块板，板内对象位置一毫米不动；无板段的源整包视为一块板。板选可经
+    plate_filter（{源序号字符串: [plater_id, ...]}）人工筛选，缺省全选。
+    mode="single"（拼一盘）：所有 build item 摊平到一块板，货架式重摆。
+    两种模式的调色板都是各源调色板的全集拼接（源 B 顺延源 A 之后），对象料槽
+    加偏移指向全集。"""
     if len(paths) < 2:
         raise MergeError("至少需要 2 个源文件")
     sources = [_load_source(p) for p in paths]
@@ -354,19 +408,14 @@ def merge(paths, title=""):
                     stack.append((cdoc, int(cid), ce))
                 children[ck] = lst
 
-    # ---- 颜色：把各源"实际用到的料槽"压缩拼接成新调色板（源B 顺延源A 之后）----
-    pal_offsets, e2is = [], []
+    # ---- 颜色：调色板全集拼接（源 B 顺延源 A），对象料槽加偏移指向全集 ----
+    pal_offsets = []
     bases, ftypes = [], []
-    for si, s in enumerate(sources):
+    for s in sources:
         pal_offsets.append(len(bases))
-        if not s.palette:
-            e2is.append({})
-            continue
-        es = sorted({ck[3] for ck in copies if ck[0] == si
-                     and flat[ck].find(_q("mesh")) is not None}) or [1]
-        e2is.append({e: i for i, e in enumerate(es)})
-        bases.extend(s.palette[e - 1] for e in es)
-        ftypes.extend((s.fil_types[e - 1] if e - 1 < len(s.fil_types) else "PLA") for e in es)
+        bases.extend(s.palette)
+        ftypes.extend((s.fil_types[i] if i < len(s.fil_types) else "PLA")
+                      for i in range(len(s.palette)))
 
     # ---- 重编号改写：组件 objectid、材质引用、按上下文料槽上色 ----
     # 材质资源无料槽上下文，单独编号（对象与材质共用一个 id 空间，不得与
@@ -407,8 +456,8 @@ def merge(paths, title=""):
         # 上色：无自带材质的网格按上下文料槽写 pid/p1（供遵循 3MF 规范的工具）；
         # 自带 basematerials 的源不覆盖，保持其原有引用。
         mesh = c.find(_q("mesh"))
-        if mesh is not None and s.palette and pal_group_id is not None and e in e2is[si]:
-            pi = pal_offsets[si] + e2is[si][e]
+        if mesh is not None and s.palette and pal_group_id is not None:
+            pi = pal_offsets[si] + e - 1
             for tr in mesh.iter(_q("triangle")):
                 if not s.materials or not tr.get("pid"):
                     tr.set("pid", str(pal_group_id))
@@ -416,77 +465,141 @@ def merge(paths, title=""):
         _strip_production_attrs(c)
         objects_out.append(c)
 
-    # ---- 摆盘 + wrapper：每个源 build item 包一层（对应 Bambu 的一个"对象"，
-    # 料槽按对象上色），item 按世界包围盒货架式排进床面 ----
-    # 只动 X/Z（3MF 规范 Y 轴朝上），Y 底面对齐到 0（打印床）；本行放不下换一行。
-    # 源按顺序依次排，前面的源占前面的格子，保持"先来先摆"的拼盘语序。
-    # 起点跳过打印机 bed_exclude_area（如 P1S 左前角切料器区 18x28mm）。
+    # ---- wrapper：每个源 build item 包一层（对应 Bambu 的一个"对象"，
+    # 料槽按对象上色）。plates 模式对象位置一毫米不动并保留板结构；
+    # single 模式按世界包围盒货架式排进一块床面（跳过 bed_exclude_area）。
     base_ps = next((s.project_settings for s in sources if s.project_settings), None)
-    excl_top = 0.0
-    if base_ps:
-        pts = []
-        for r in base_ps.get("bed_exclude_area") or []:
-            mm_ = re.fullmatch(r"(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)", str(r))
-            if mm_:
-                pts.append((float(mm_.group(1)), float(mm_.group(2))))
-        excl_top = max((y for _, y in pts), default=0.0)
+
+    def source_plan(s, si):
+        """plates 模式的输出板计划：真实板（可按 plate_filter 筛选）+ 不属于
+        任何真实板的 item 兜底板；无板段的源整包一块板。被筛选掉的板其对象
+        一并排除（人工选板即明确不要）。src_origin 是该板在源文件网格里的
+        原点（Bambu 保存时把每板对象平移进自己的虚拟床区，重排时要先扣掉）。"""
+        sel = None
+        if plate_filter:
+            sel = {int(x) for x in (plate_filter.get(str(si)) or [])}
+        src_cols = _bambu_plate_cols(max(len(s.plates), 1))
+        plan = []
+        in_any_real = set()
+        for p in s.plates:
+            in_any_real.update(p["objects"])
+            if sel is not None and p["plater_id"] not in sel:
+                continue
+            its = [(oid, ts) for (oid, ts) in s.items if oid in p["objects"]]
+            srow, scol = divmod(p["plater_id"] - 1, src_cols)
+            plan.append({"name": p["name"] or f"板{p['plater_id']}",
+                         "imgs": p["imgs"], "items": its,
+                         "src_origin": (scol * PLATE_STRIDE_MM, -srow * PLATE_STRIDE_MM)})
+        rest = [(oid, ts) for (oid, ts) in s.items if oid not in in_any_real]
+        if rest:
+            plan.append({"name": f"板{len(plan) + 1}", "imgs": {}, "items": rest,
+                         "src_origin": (0.0, 0.0)})
+        return plan
+
+    def walk_refs(s, key, mm, parts):
+        """展开对象引用树：每个网格引用一条 <part>（列主序 4x4 矩阵与面数），
+        缺 part 会被 Bambu 判配置无效。"""
+        obj = s.objects.get(key)
+        if obj is None:
+            return
+        mesh = obj.find(_q("mesh"))
+        if mesh is not None:
+            trs = mesh.find(_q("triangles"))
+            r0, r1, r2, t = mm
+            mat16 = " ".join(f"{x:.17g}" for x in (
+                r0[0], r1[0], r2[0], t[0],
+                r0[1], r1[1], r2[1], t[1],
+                r0[2], r1[2], r2[2], t[2],
+                0.0, 0.0, 0.0, 1.0))
+            parts.append((mat16, len(trs) if trs is not None else 0))
+            return
+        comps_el = obj.find(_q("components"))
+        for comp in (comps_el if comps_el is not None else []):
+            cid = comp.get("objectid")
+            if not cid or not cid.isdigit():
+                continue
+            ref = comp.get(f"{{{PROD_NS}}}path") or comp.get("path")
+            walk_refs(s, (ref or key[0], int(cid)),
+                      compose(parse_transform(comp.get("transform") or ""), mm), parts)
+
     wrappers = []
-    cfg_entries = []   # (wrapper_id, 对象名, 全局料槽号 or None, [(矩阵16, 面数), ...])
-    cx, cz, row_d = MARGIN_MM, excl_top + GAP_MM + MARGIN_MM, 0.0
-    for si, s in enumerate(sources):
-        stem = posixpath.splitext(s.name)[0]
-        for k, ((oid, ts), (lo, hi)) in enumerate(zip(s.items, _item_boxes(s)), 1):
-            e0 = _ctx(s, s.main_doc, oid, 1)
-            nk = id_obj.get((si, s.main_doc, oid, e0))
-            if nk is None:
-                raise MergeError(f"{s.name}：build 引用了不存在的对象 {oid}")
-            wx = hi[0] - lo[0]
-            if cx > MARGIN_MM and cx + wx > USABLE_MM:
-                cx, cz, row_d = MARGIN_MM, cz + row_d + GAP_MM, 0.0
-            placement = compose(parse_transform(ts), _translation(cx - lo[0], -lo[1], cz - lo[2]))
-            tf = fmt_transform(placement)
-            wid = str(next_id)
-            next_id += 1
-            w = ET.Element(_q("object"), {"id": wid, "type": "model"})
-            comps = ET.SubElement(w, _q("components"))
-            ET.SubElement(comps, _q("component"), {"objectid": nk, "transform": tf})
-            wrappers.append(w)
-            # 展开该 item 的部件引用树：model_settings 里每个网格引用一条 <part>
-            # （带物体坐标系下的 4x4 矩阵与面数），缺 part 会被 Bambu 判配置无效
-            parts = []
+    cfg_entries = []   # (wrapper_id, 对象名, 全局料槽号 or None, [(矩阵16, 面数), ...], 板序号 0=无板)
 
-            def walk_refs(key, mm):
-                obj = s.objects.get(key)
-                if obj is None:
-                    return
-                mesh = obj.find(_q("mesh"))
-                if mesh is not None:
-                    trs = mesh.find(_q("triangles"))
-                    r0, r1, r2, t = mm
-                    # Bambu 的 part matrix 是列主序 4x4：每 4 个一组为基向量+平移
-                    mat16 = " ".join(f"{x:.17g}" for x in (
-                        r0[0], r1[0], r2[0], t[0],
-                        r0[1], r1[1], r2[1], t[1],
-                        r0[2], r1[2], r2[2], t[2],
-                        0.0, 0.0, 0.0, 1.0))
-                    parts.append((mat16, len(trs) if trs is not None else 0))
-                    return
-                comps_el = obj.find(_q("components"))
-                for comp in (comps_el if comps_el is not None else []):
-                    cid = comp.get("objectid")
-                    if not cid or not cid.isdigit():
-                        continue
-                    ref = comp.get(f"{{{PROD_NS}}}path") or comp.get("path")
-                    walk_refs((ref or key[0], int(cid)),
-                              compose(parse_transform(comp.get("transform") or ""), mm))
+    def make_wrapper(s, si, stem, j, oid, placement, plate_no):
+        """包一层 wrapper、登记 cfg 条目，返回 wrapper id。part 矩阵相对物体
+        （不含 wrapper 的板位 transform），与 Bambu 原生语义一致。"""
+        nonlocal next_id
+        e0 = _ctx(s, s.main_doc, oid, 1)
+        nk = id_obj.get((si, s.main_doc, oid, e0))
+        if nk is None:
+            raise MergeError(f"{s.name}：build 引用了不存在的对象 {oid}")
+        wid = str(next_id)
+        next_id += 1
+        w = ET.Element(_q("object"), {"id": wid, "type": "model"})
+        comps = ET.SubElement(w, _q("components"))
+        ET.SubElement(comps, _q("component"),
+                      {"objectid": nk, "transform": fmt_transform(placement)})
+        wrappers.append(w)
+        parts = []
+        walk_refs(s, (s.main_doc, oid), parse_transform(""), parts)
+        g_e = pal_offsets[si] + e0 if s.palette else None
+        cfg_entries.append((wid, f"{stem}_{j}", g_e, parts, plate_no))
+        return wid
 
-            walk_refs((s.main_doc, oid), placement)
-            g_e = None
-            if s.palette and e0 in e2is[si]:
-                g_e = pal_offsets[si] + e2is[si][e0] + 1   # Bambu 料槽 1 基
-            cfg_entries.append((wid, f"{stem}_{k}", g_e, parts))
-            cx += wx + GAP_MM
-            row_d = max(row_d, hi[2] - lo[2])
+    plates_out = []    # plates 模式：[(板名, [wrapper_id...], {img key: 输出路径})]
+    img_copies = []    # (输出路径, 源序号, 源路径)
+    if mode == "plates":
+        # 先收集全部输出板，再按 Bambu 的板网格公式平移：板 k(0 基) 位于
+        # (col*stride, -row*stride)，stride=板宽×1.2；col/row 按列优先序展开。
+        flat_plates = []
+        for si, s in enumerate(sources):
+            stem = posixpath.splitext(s.name)[0]
+            for plt in source_plan(s, si):
+                flat_plates.append((si, s, stem, plt))
+        cols = _bambu_plate_cols(len(flat_plates))
+        for k, (si, s, stem, plt) in enumerate(flat_plates):
+            row, col = divmod(k, cols)
+            src_ox, src_oy = plt["src_origin"]
+            # Bambu 的板网格在 3mf 坐标的 x（列）与 y（行，负方向）上展开，
+            # z 是高度不动；delta = 新板原点 - 源板原点
+            dx = col * PLATE_STRIDE_MM - src_ox
+            dy = -row * PLATE_STRIDE_MM - src_oy
+            pname = f"{stem}-{plt['name']}"
+            imgs = {}
+            for key, zipname in plt["imgs"].items():
+                ext = posixpath.splitext(zipname)[1] or ".png"
+                prefix = {"thumbnail_file": f"plate_{k + 1}",
+                          "thumbnail_no_light_file": f"plate_no_light_{k + 1}",
+                          "top_file": f"top_{k + 1}",
+                          "pick_file": f"pick_{k + 1}"}[key]
+                out = f"Metadata/{prefix}{ext}"
+                imgs[key] = out
+                img_copies.append((out, si, zipname))
+            shift = _translation(dx, dy, 0.0)
+            wids = [make_wrapper(s, si, stem, j, oid,
+                                 compose(parse_transform(ts), shift), k + 1)
+                    for j, (oid, ts) in enumerate(plt["items"], 1)]
+            plates_out.append((pname, wids, imgs))
+    else:
+        excl_top = 0.0
+        if base_ps:
+            pts = []
+            for r in base_ps.get("bed_exclude_area") or []:
+                mm_ = re.fullmatch(r"(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)", str(r))
+                if mm_:
+                    pts.append((float(mm_.group(1)), float(mm_.group(2))))
+            excl_top = max((y for _, y in pts), default=0.0)
+        cx, cz, row_d = MARGIN_MM, excl_top + GAP_MM + MARGIN_MM, 0.0
+        for si, s in enumerate(sources):
+            stem = posixpath.splitext(s.name)[0]
+            for k, ((oid, ts), (lo, hi)) in enumerate(zip(s.items, _item_boxes(s)), 1):
+                wx = hi[0] - lo[0]
+                if cx > MARGIN_MM and cx + wx > USABLE_MM:
+                    cx, cz, row_d = MARGIN_MM, cz + row_d + GAP_MM, 0.0
+                placement = compose(parse_transform(ts), _translation(cx - lo[0], -lo[1], cz - lo[2]))
+                make_wrapper(s, si, stem, k, oid, placement, 0)
+                cx += wx + GAP_MM
+                row_d = max(row_d, hi[2] - lo[2])
 
     # ---- 组装输出文档 ----
     model = ET.Element(_q("model"), {"unit": unit})
@@ -513,12 +626,14 @@ def merge(paths, title=""):
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml",
-                   '<?xml version="1.0" encoding="utf-8"?>'
-                   '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-                   '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-                   '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>'
-                   "</Types>")
+        ct = ('<?xml version="1.0" encoding="utf-8"?>'
+              '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+              '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+              '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>')
+        if img_copies:
+            ct += '<Default Extension="png" ContentType="image/png"/>'
+        ct += "</Types>"
+        z.writestr("[Content_Types].xml", ct)
         z.writestr("_rels/.rels",
                    '<?xml version="1.0" encoding="utf-8"?>'
                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -527,11 +642,21 @@ def merge(paths, title=""):
                    'Target="/3D/3dmodel.model"/>'
                    "</Relationships>")
         z.writestr("3D/3dmodel.model", doc)
-        # Bambu sidecar 配置：对象名/料槽（model_settings.config）与项目设置
-        # （project_settings.config）。料槽号指向合并后的调色板。
+        # 板预览图：从各源包复制并按输出板号重命名（缺图省略引用）。
+        for out, si, zipname in img_copies:
+            try:
+                with zipfile.ZipFile(sources[si].path) as zs:
+                    zn = {n.lower(): n for n in zs.namelist()}
+                    hit = zn.get(zipname.lower())
+                    if hit:
+                        z.writestr(out, zs.read(hit))
+            except Exception:
+                pass
+        # Bambu sidecar 配置：对象名/料槽（model_settings.config）、板结构
+        # 与项目设置（project_settings.config）。料槽号指向合并后的全集调色板。
         if cfg_entries and bases:
             cfg = ET.Element("config")
-            for wid, nm, g_e, parts in cfg_entries:
+            for wid, nm, g_e, parts, plate_no in cfg_entries:
                 o = ET.SubElement(cfg, "object", {"id": wid})
                 ET.SubElement(o, "metadata", {"key": "name", "value": nm})
                 if g_e is not None:
@@ -543,15 +668,38 @@ def merge(paths, title=""):
                     ET.SubElement(pe, "mesh_stat", {"face_count": str(fc), "edges_fixed": "0",
                                                     "degenerate_facets": "0", "facets_removed": "0",
                                                     "facets_reversed": "0", "backwards_edges": "0"})
+            if plates_out:
+                identify = 0
+                for k, (pname, wids, imgs) in enumerate(plates_out, 1):
+                    pl = ET.SubElement(cfg, "plate")
+                    for key, val in (("plater_id", str(k)), ("plater_name", pname),
+                                     ("locked", "false"),
+                                     ("filament_map_mode", "Auto For Flush"),
+                                     ("filament_maps", " ".join(["1"] * len(bases))),
+                                     ("filament_volume_maps", " ".join(["0"] * len(bases))),
+                                     ("gcode_file", "")):
+                        ET.SubElement(pl, "metadata", {"key": key, "value": val})
+                    for key, out in imgs.items():
+                        ET.SubElement(pl, "metadata", {"key": key, "value": out})
+                    for wid in wids:
+                        identify += 1
+                        mi = ET.SubElement(pl, "model_instance")
+                        ET.SubElement(mi, "metadata", {"key": "object_id", "value": wid})
+                        # instance_id 是对象内的实例下标（每个 wrapper 只有一个
+                        # build item，恒为 0）；identify_id 才是全局唯一标识
+                        ET.SubElement(mi, "metadata", {"key": "instance_id", "value": "0"})
+                        ET.SubElement(mi, "metadata", {"key": "identify_id", "value": str(identify + 200)})
             z.writestr("Metadata/model_settings.config",
                        '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(cfg, encoding="unicode"))
             # project_settings 必须是 Bambu 认可的完整结构（含 filament_settings_id
             # 等几十个按料槽对齐的数组），只写颜色会被判"配置无效"而整包丢弃。
             # 因此以第一个带配置的源为基底，把按料槽对齐的数组扩/截到合并后的
-            # 料槽数（多出的沿用该源最后一槽的设置），再覆盖颜色与类型。
-            # 注意数组有多种长度档：len=old_n 的直排、k*old_n 的分块（如
-            # flush_volumes_matrix 的 N×N 矩阵），必须逐块等比扩缩，否则长度
-            # 自相矛盾，Bambu 校验不过会丢弃整个配置。
+            # 料槽数。数组三种形态，扩容规则各异（弄错会被 Bambu 整包判无效）：
+            #   len==old_n          直排（filament_colour 等）：扩到 new_n，沿用末槽；
+            #   len==old_n²         方阵（flush_volumes_matrix 的 N×N）：每行扩到
+            #                       new_n 后再补 new_n-old_n 行；
+            #   len==k*old_n (1<k<old_n)  每料槽 k 行的组表（filament_extruder_variant
+            #                       的料槽×变体表等）：保留全表，为新料槽追加末槽的组。
             base = base_ps
             if base is not None:
                 ps = copy.deepcopy(base)
@@ -561,15 +709,27 @@ def merge(paths, title=""):
                     for v in ps.values():
                         if not isinstance(v, list) or not v or len(v) % old_n:
                             continue
-                        nv = []
-                        for i in range(0, len(v), old_n):
-                            blk = v[i:i + old_n]
-                            if new_n > old_n:
-                                blk = blk + [blk[-1]] * (new_n - old_n)
-                            else:
-                                blk = blk[:new_n]
-                            nv.extend(blk)
-                        v[:] = nv
+                        L = len(v)
+                        if L == old_n:
+                            v[:] = (v + [v[-1]] * (new_n - old_n)) if new_n > old_n else v[:new_n]
+                        elif L == old_n * old_n:
+                            rows = [v[i:i + old_n] for i in range(0, L, old_n)]
+                            rows = [(r + [r[-1]] * (new_n - old_n))[:new_n] for r in rows][:new_n]
+                            rows += [rows[-1][:]] * (new_n - len(rows))
+                            v[:] = [x for r in rows for x in r]
+                        else:
+                            k = L // old_n
+                            v[:] = v + v[-k:] * (new_n - old_n)
+                    # filament_self_index 是"料槽 id × 变体"行表里的料槽编号，
+                    # 扩容后新行的编号必须是新料槽号（9..new_n），不能复制末槽；
+                    # Bambu 以字符串存储（JSON 数组元素类型须与源一致）
+                    fsi = ps.get("filament_self_index")
+                    if isinstance(fsi, list) and new_n and len(fsi) % new_n == 0:
+                        per = len(fsi) // new_n
+                        as_str = bool(fsi) and isinstance(fsi[0], str)
+                        ps["filament_self_index"] = [
+                            str(i // per + 1) if as_str else (i // per + 1)
+                            for i in range(len(fsi))]
             else:
                 ps = {}
             ps["filament_colour"] = list(bases)
@@ -581,4 +741,13 @@ def merge(paths, title=""):
 
 def build_export_name(n, ts=None):
     return f"合并_{n}个模型_{ts or time.strftime('%Y%m%d_%H%M%S')}.3mf"
+
+
+def list_plates(path):
+    """列出一个 3mf 的板结构（选板 UI 用）：[{plater_id, name, objects}]。
+    无板段返回空列表。只读。"""
+    src = _load_source(path)
+    return [{"plater_id": p["plater_id"],
+             "name": p["name"] or f"板{p['plater_id']}",
+             "objects": len(p["objects"])} for p in src.plates]
 

@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from merge_3mf import MergeError, merge, build_export_name, apply_m, compose, parse_transform
+from merge_3mf import MergeError, merge, build_export_name, list_plates, apply_m, compose, parse_transform
 from tests.test_api import fetch, _make_3mf_bytes  # client fixture 在 conftest.py
 
 CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
@@ -130,6 +130,128 @@ def _bambu_project_pkg(extruder=2, colors=("#FF0000", "#00FF00"), verts=4):
     })
 
 
+def _plated_pkg(plates, offset=0, colors=("#FF0000", "#00AA00")):
+    """带板结构的 Bambu 工程源：plates = [(plater_id, 板名, [对象id])]，
+    每个对象一个网格（x 整体平移 offset 以区分源）。颜色配置与预览图可选。"""
+    objs, items, cfg_objs = [], [], []
+    for n, (_, _, oids) in enumerate(plates):
+        for oid in oids:
+            main_oid = offset + oid
+            objs.append(
+                f'<object id="{main_oid}" type="model"><components>'
+                f'<component objectid="{main_oid + 100}" path="3D/Objects/object_{oid}.model"/>'
+                f'</components></object>')
+            items.append(f'<item objectid="{main_oid}" transform="1 0 0 0 1 0 0 0 1 '
+                         f'{offset * 10} 0 0"/>')
+            cfg_objs.append(f'<object id="{main_oid}">'
+                            f'<metadata key="extruder" value="{n + 1}"/></object>')
+    main = (f'<model unit="millimeter" xmlns="{CORE}">'
+            f'<resources>{"".join(objs)}</resources>'
+            f'<build>{"".join(items)}</build></model>')
+    parts = {}
+    for _, _, oids in plates:
+        for oid in oids:
+            parts[f"3D/Objects/object_{oid}.model"] = (
+                f'<model unit="millimeter" xmlns="{CORE}">'
+                f'<resources><object id="{offset + oid + 100}"><mesh><vertices>'
+                f'<vertex x="0" y="0" z="0"/><vertex x="{oid}" y="0" z="0"/>'
+                f'<vertex x="2" y="0" z="0"/></vertices>'
+                f'<triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh>'
+                f'</object></resources><build></build></model>')
+    parts["Metadata/model_settings.config"] = (
+        '<?xml version="1.0" encoding="UTF-8"?><config>'
+        + "".join(cfg_objs) + "".join(
+            f'<plate><metadata key="plater_id" value="{pid}"/>'
+            f'<metadata key="plater_name" value="{name}"/>'
+            f'<metadata key="thumbnail_file" value="Metadata/plate_{pid}.png"/>'
+            + "".join(f'<model_instance><metadata key="object_id" value="{offset + oid}"/></model_instance>'
+                      for oid in oids) + '</plate>'
+            for pid, name, oids in plates) + '</config>')
+    parts["Metadata/project_settings.config"] = json.dumps({
+        "filament_colour": list(colors),
+        "filament_type": ["PLA"] * len(colors),
+        "filament_diameter": ["1.75"] * len(colors),
+    })
+    parts["Metadata/plate_1.png"] = b"\x89PNG-fake-1"
+    parts["Metadata/plate_2.png"] = b"\x89PNG-fake-2"
+    parts["3D/3dmodel.model"] = main
+    return _pkg(parts)
+
+
+def test_merge_plates_mode_keeps_positions_and_plates(tmp_path):
+    """各自落板：每块源板成为产物一块板，对象位置一毫米不动；
+    调色板全集拼接，对象料槽加偏移指向全集；板预览图按输出板号复制。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_plated_pkg([(1, "板一", [10]), (2, "", [11])]))
+    pb.write_bytes(_plated_pkg([(1, "五月天", [10])], offset=50))
+    data = merge([str(pa), str(pb)], title="落板")
+
+    z = zipfile.ZipFile(io.BytesIO(data))
+    root = _parse_merged(data)
+    core = f"{{{CORE}}}"
+    metas = {m.get("name"): m.text for m in root.findall(core + "metadata")}
+    assert metas.get("Application", "").startswith("BambuStudio")
+    # 调色板全集：源A 2 色 + 源B 2 色
+    bm = root.find(core + "resources").find(core + "basematerials")
+    cols = [b.get("color") for b in bm.findall(core + "base")]
+    assert cols == ["#FF0000", "#00AA00", "#FF0000", "#00AA00"]
+    # 板结构：3 块输出板，名字带源文件名前缀
+    cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
+    plates = cfg.findall("plate")
+    assert [p.find("metadata[@key='plater_id']").get("value") for p in plates] == ["1", "2", "3"]
+    names = [p.find("metadata[@key='plater_name']").get("value") for p in plates]
+    assert names[0] == "a-板一" and names[1].startswith("a-板") and names[2] == "b-五月天"
+    # 每板 1 个对象，对象 id 都在 resources 里
+    byid = {o.get("id") for o in _objs(root)}
+    for p in plates:
+        mis = p.findall("model_instance")
+        assert len(mis) == 1
+        assert mis[0].find("metadata[@key='object_id']").get("value") in byid
+    # 位置不动：build item 无平移（源 item 本身也是恒等 transform）
+    for it in root.find(core + "build").findall(core + "item"):
+        assert it.get("transform") is None
+    # 板预览图按输出板号复制
+    assert z.read("Metadata/plate_1.png") == b"\x89PNG-fake-1"
+    assert z.read("Metadata/plate_3.png") == b"\x89PNG-fake-1"   # 源B 的板1
+    # 料槽：源A 板1→1、板2→2；源B 板1→3（全集偏移）
+    exts = []
+    for o in cfg.findall("object"):
+        md = o.find("metadata[@key='extruder']")
+        if md is not None:
+            exts.append(md.get("value"))
+    assert sorted(exts) == ["1", "2", "3"]
+    ps = json.loads(z.read("Metadata/project_settings.config").decode())
+    assert ps["filament_colour"] == cols
+    # 按料槽对齐数组扩到 4 槽
+    assert ps["filament_diameter"] == ["1.75"] * 4
+
+
+def test_merge_plate_filter(tmp_path):
+    """人工选板：plate_filter 只保留选中的板。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_plated_pkg([(1, "板一", [10]), (2, "板二", [11])]))
+    pb.write_bytes(_plated_pkg([(1, "五月天", [10])], offset=50))
+    data = merge([str(pa), str(pb)], title="选板",
+                 plate_filter={"0": [2], "1": [1]})
+
+    z = zipfile.ZipFile(io.BytesIO(data))
+    cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
+    plates = cfg.findall("plate")
+    assert len(plates) == 2
+    names = [p.find("metadata[@key='plater_name']").get("value") for p in plates]
+    assert names == ["a-板二", "b-五月天"]
+
+
+def test_list_plates(tmp_path):
+    p = tmp_path / "a.3mf"
+    p.write_bytes(_plated_pkg([(1, "板一", [10]), (2, "", [11])]))
+    ps = list_plates(str(p))
+    assert ps == [{"plater_id": 1, "name": "板一", "objects": 1},
+                  {"plater_id": 2, "name": "板2", "objects": 1}]
+
+
 def test_merge_colors_from_bambu_metadata(tmp_path):
     """Bambu 工程源的颜色搬运：合成 basematerials + 三角形 pid/p1 按对象料槽上色；
     无配置的源不上色。"""
@@ -146,9 +268,9 @@ def test_merge_colors_from_bambu_metadata(tmp_path):
     assert len(all_ids) == len(set(all_ids)), f"资源 id 重复：{sorted(all_ids)}"
     bms = res.findall(f"{{{CORE}}}basematerials")
     assert len(bms) == 1 and bms[0].get("id") == "1"
-    # 调色板压缩到实际用到的料槽：源A 只用了 extruder=2 → 只保留 #00FF00
+    # 调色板为全集拼接：源A 两色都在，源B 无配置不贡献
     cols = [b.get("color") for b in bms[0].findall(f"{{{CORE}}}base")]
-    assert cols == ["#00FF00"], cols
+    assert cols == ["#FF0000", "#00FF00"], cols
     byid = {o.get("id"): o for o in _objs(root)}
     # 源A 的网格（4 顶点）：extruder=2 → 压缩后 p1=下标0；源B 的网格（6 顶点）：无 pid
     painted = unpainted = None
@@ -162,7 +284,7 @@ def test_merge_colors_from_bambu_metadata(tmp_path):
             painted = tr
         elif n == 6:
             unpainted = tr
-    assert painted.get("pid") == "1" and painted.get("p1") == "0"
+    assert painted.get("pid") == "1" and painted.get("p1") == "1"
     assert unpainted.get("pid") is None and unpainted.get("p1") is None
     # Bambu sidecar：料槽配置指向新对象 id 与合并后料槽号；调色板 JSON 与之一致。
     # 无调色板的源也写对象名条目（不写 extruder）。
@@ -174,11 +296,12 @@ def test_merge_colors_from_bambu_metadata(tmp_path):
                 if any(m.get("key") == "extruder" for m in e.findall("metadata"))]
     assert len(with_ext) == 1 and with_ext[0].get("id") in byid
     md = {m.get("key"): m.get("value") for m in with_ext[0].findall("metadata")}
-    assert md.get("extruder") == "1" and md.get("name")
+    assert md.get("extruder") == "2" and md.get("name")   # 全集下指向源A 第2槽
     ps = json.loads(z.read("Metadata/project_settings.config").decode())
-    assert ps["filament_colour"] == ["#00FF00"] and ps["filament_type"] == ["PLA"]
-    # 按料槽对齐的数组随合并后的料槽数截断（2 槽 → 1 槽）
-    assert ps["filament_diameter"] == ["1.75"]
+    assert ps["filament_colour"] == ["#FF0000", "#00FF00"]
+    assert ps["filament_type"] == ["PLA", "PLA"]
+    # 基底按料槽对齐数组长度与全集一致（2 槽 → 2 槽，不变）
+    assert ps["filament_diameter"] == ["1.75", "1.75"]
     # Application 元数据必须是 BambuStudio 标识，否则 Bambu 不加载料槽表（颜色丢失）
     metas = {m.get("name"): m.text for m in root.findall(f"{{{CORE}}}metadata")}
     assert metas.get("Application", "").startswith("BambuStudio")
@@ -232,7 +355,7 @@ def test_merge_shelf_layout_wraps_row(tmp_path):
     pb = tmp_path / "b.3mf"
     pa.write_bytes(_simple_pkg(verts=301, item_tf="1 0 0 0 1 0 0 0 1 0 0 0"))   # 宽 300
     pb.write_bytes(_simple_pkg(verts=301, item_tf="1 0 0 0 1 0 0 0 1 0 0 0"))
-    data = merge([str(pa), str(pb)], title="换行")
+    data = merge([str(pa), str(pb)], title="换行", mode="single")
     pts = _world_pts(data)
     zs = sorted({p[2] for p in pts})
     # 测试基底无 bed_exclude_area → 起摆 z=边距+间距=8，第二行再错开 GAP=5
@@ -259,7 +382,7 @@ def test_merge_flatten_renumber_and_layout(tmp_path):
     pb = tmp_path / "b.3mf"
     pa.write_bytes(_simple_pkg(verts=6))          # 世界包围盒 x∈[100,105]（item tf +100）
     pb.write_bytes(_bambu_like_pkg())             # 世界包围盒 x∈[10,14]（组件 tf +10）
-    data = merge([str(pa), str(pb)], title="测试合并")
+    data = merge([str(pa), str(pb)], title="测试合并", mode="single")
 
     root = _parse_merged(data)
     objs = _objs(root)
@@ -433,3 +556,32 @@ def test_merge_export_thumb_copied_from_source(client):
     fetch(client, "/api/thumbnail", data={"id": str(fc["id"])}, files=[("file", "t.png", _png())])
     r4 = fetch(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]], "thumb_file_id": fc["id"]})
     assert r4["ok"] and not r4["file"]["thumb"]
+
+def test_merge_export_api_plates_mode_and_listing(client):
+    """API：plates 为默认模式（各自落板）；/api/merge-plates 列出源板结构。"""
+    from tests.test_api import fetch as api
+
+    ra = api(client, "/api/upload", files=[("file", "a.3mf", _plated_pkg([(1, "板一", [10]), (2, "板二", [11])]))])
+    rb = api(client, "/api/upload", files=[("file", "b.3mf", _plated_pkg([(1, "五月天", [10])], offset=50))])
+    fa, fb = ra["results"][0]["file"], rb["results"][0]["file"]
+
+    rl = api(client, f"/api/merge-plates?ids={fa['id']},{fb['id']}")
+    by_id = {r["id"]: r for r in rl["results"]}
+    assert [p["name"] for p in by_id[fa["id"]]["plates"]] == ["板一", "板二"]
+    assert by_id[fb["id"]]["plates"][0]["name"] == "五月天"
+
+    # 选板合并：A 板二 + B 板一 → 2 块板
+    r = api(client, "/api/merge-export", data={
+        "ids": [fa["id"], fb["id"]], "plates": {"0": [2], "1": [1]}})
+    assert r["ok"], r
+    z = zipfile.ZipFile(r["file"]["abs_path"])
+    cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
+    plates = cfg.findall("plate")
+    names = [p.find("metadata[@key='plater_name']").get("value") for p in plates]
+    assert names == ["a-板二", "b-五月天"]
+    # mode=single 仍可用：摊平为一块板（产物无 plate 段）
+    r2 = api(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]], "mode": "single"})
+    assert r2["ok"], r2
+    z2 = zipfile.ZipFile(r2["file"]["abs_path"])
+    cfg2 = ET.fromstring(z2.read("Metadata/model_settings.config"))
+    assert not cfg2.findall("plate")

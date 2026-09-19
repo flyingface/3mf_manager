@@ -1011,8 +1011,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": f"源文件缺失：{row['filename']}"}); return
             paths.append(p)
         base = merge_3mf.build_export_name(len(paths))[:-4]
+        # mode="plates"（默认）各自落板——每块源板成为产物一块板、位置不动；
+        # mode="single" 摊平重摆到一块板。plates 为人工选板 {源序号: [plater_id]}。
+        mode = data.get("mode") or "plates"
+        if mode not in ("plates", "single"):
+            self._send(400, {"error": "mode 仅支持 plates / single"}); return
+        pf = data.get("plates")
+        plate_filter = None
+        if isinstance(pf, dict):
+            plate_filter = {}
+            for k, v in pf.items():
+                try:
+                    plate_filter[str(int(k))] = [int(x) for x in (v or [])]
+                except (TypeError, ValueError):
+                    self._send(400, {"error": "plates 需为 {源序号: [板号]} 结构"}); return
         try:
-            blob = merge_3mf.merge(paths, title=base)
+            blob = merge_3mf.merge(paths, title=base, mode=mode, plate_filter=plate_filter)
         except merge_3mf.MergeError as e:
             self._send(400, {"error": str(e)}); return
         export_dir = os.path.join(LIBRARY_ROOT, "exports")
@@ -1062,6 +1076,36 @@ class Handler(BaseHTTPRequestHandler):
         payload = api_group_payload(conn, gid)
         conn.close()
         self._send(200, {"ok": True, "file": rec, "group": payload})
+
+    def _api_merge_plates(self, q):
+        """列出待合并源的板结构（选板 UI 用）。GET /api/merge-plates?ids=1,2
+        → {results: [{id, filename, plates: [{plater_id, name, objects}]}]}。
+        只读源文件，不改任何数据。"""
+        try:
+            ids = [int(x) for x in (q.get("ids") or [""])[0].split(",") if x.strip()]
+        except ValueError:
+            self._send(400, {"error": "ids 必须是逗号分隔的数字"}); return
+        if not ids or len(ids) > 20:
+            self._send(400, {"error": "需要 1~20 个模型 id"}); return
+        conn = db_conn()
+        results = []
+        for fid in ids:
+            row = conn.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
+            if not row:
+                results.append({"id": fid, "error": "模型不存在"}); continue
+            p = file_full_path(row)
+            if not p or not os.path.exists(p):
+                results.append({"id": fid, "filename": row["filename"], "error": "源文件缺失"}); continue
+            try:
+                plates = merge_3mf.list_plates(p)
+            except merge_3mf.MergeError as e:
+                results.append({"id": fid, "filename": row["filename"], "error": str(e)}); continue
+            except Exception:
+                LOG.exception("读取板结构失败: %s", p)
+                results.append({"id": fid, "filename": row["filename"], "error": "读取板结构失败"}); continue
+            results.append({"id": fid, "filename": row["filename"], "plates": plates})
+        conn.close()
+        self._send(200, {"results": results})
 
     def _is_earliest_dup(self, conn, row):
         """SHA256 重复且本行不是最早副本则返回 False（不可归档）。"""
@@ -2016,6 +2060,7 @@ GET_ROUTES = {
     "/api/config": Handler._api_get_config,
     "/api/attachments": Handler._api_attachments,
     "/api/dirs": Handler._api_dirs,
+    "/api/merge-plates": Handler._api_merge_plates,
     "/api/rules": lambda h, _: h._api_rules({}),
     "/api/groups": Handler._api_groups,
     "/api/groups/get": Handler._api_groups_get,

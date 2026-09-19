@@ -2,6 +2,15 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.7.0] - 2026-09-19
+
+### 新增
+- **合并导出「各自落板」模式（默认）**：保留每个源的板结构——每块源板成为产物的一块板，板内对象相对位置一毫米不动；产物按 Bambu 的板网格公式（板宽 ×1.2 步距、`compute_colum_count` 列数、行偏移走 y 轴）把每块板平移进自己的虚拟床区（Bambu 加载后按实例包围盒与板矩形相交归属分板，不搬进对应虚拟区会被并进第一块板）；`model_settings.config` 写 `<plate>` 段（板名=源文件名-板名）、`model_settings` 的 `instance_id` 恒为 0（对象内实例下标）、`identify_id` 全局唯一；板预览图（plate/top/pick/no_light png）从源包复制并按输出板号重命名，Content_Types 补 png 声明
+- **调色板全集拼接**：产物调色板 = 各源 `filament_colour` 全集顺延拼接（不再压缩到实际用到的料槽），对象料槽加源偏移指向全集；`project_settings` 以首个带配置源的完整 JSON 为基底，按料槽对齐数组按三种形态正确扩容——直排（len=n）扩槽沿用末槽、方阵（n²，冲刷矩阵）逐行扩展再补行、组表（料槽×变体，如 `filament_extruder_variant`/`filament_self_index`）保留全表并为新料槽追加末槽组、`filament_self_index` 重编为新料槽号且保持源的类型
+- **`GET /api/merge-plates?ids=`**：列出待合并源的板结构（板号/板名/对象数，只读），供选板 UI 使用
+- `/api/merge-export` 支持 `mode`（`plates` 默认 / `single` 旧的摊盘重摆）与 `plates` 人工选板（`{源序号: [板号]}`，缺省全选）
+- 验证：Bambu CLI 无头切片闭环——真实双源（3 板 + 3 板）合并产物 6 块板全部独立切片成功，逐板 gcode 用料槽号与源的料槽映射逐一吻合（含一板 4 色的多色板），13 槽全集调色板全程生效
+
 ## [2.6.3] - 2026-09-17
 
 ### 修复
