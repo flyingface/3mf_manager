@@ -142,6 +142,10 @@ input::placeholder{color:var(--tert)}
 .thm-opt{width:64px;height:64px;border-radius:8px;border:2px solid var(--border);overflow:hidden;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);background:var(--bg2)}
 .thm-opt img{width:100%;height:100%;object-fit:cover;display:block}
 .thm-opt.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft)}
+.plate-row{margin:0 0 8px}
+.plate-row .src-name{font-size:12px;color:var(--muted);margin-bottom:4px}
+.plate-chip{display:inline-block;padding:3px 10px;margin:0 6px 6px 0;border-radius:999px;border:1.5px solid var(--border);font-size:12px;cursor:pointer;user-select:none;background:var(--bg2);color:var(--text)}
+.plate-chip.on{border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
 .th-wrap .th-cam:hover{background:rgba(59,109,240,.9)}
 .card-hd .cb{flex:1;min-width:0;display:flex;flex-direction:column}
 .card-hd .rt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
@@ -1494,24 +1498,55 @@ function renderSelBar(){
     <button class="btn ghost sm" onclick="toggleMultiMode(false)">退出</button>`;
 }
 let _mergeThumbFid=0;
+let _mergePlateSel={};   // 源序号 -> Set(板号)，仅含带板结构的源
 function mergePickThumb(fid,el){
   _mergeThumbFid=fid;
   document.querySelectorAll('#modalBody .thm-opt').forEach(x=>x.classList.remove('on'));
   if(el)el.classList.add('on');
 }
+function mergePickPlate(si,pid,el){
+  const set=_mergePlateSel[si]||( _mergePlateSel[si]=new Set());
+  if(set.has(pid)){set.delete(pid);el.classList.remove('on')}
+  else{set.add(pid);el.classList.add('on')}
+}
 async function mergeExport(){
   const ids=[..._selIds];
   if(ids.length<2){toast('至少选择 2 个模型才能合并');return}
+  // 板结构：各源按 Bambu 的板（plate）列出，默认全选，可去掉不需要的板
+  let plateInfo=[];
+  try{
+    const pr=await fetch('/api/merge-plates?ids='+ids.join(','));
+    if(pr.ok)plateInfo=((await pr.json()).results)||[];
+  }catch(e){plateInfo=[]}
+  _mergePlateSel={};
+  const plateRows=plateInfo.map((r,si)=>{
+    const f=_fileById[ids[si]]||{};
+    const name=(f.alias&&f.alias!==f.filename)?f.alias:(f.filename||('源'+(si+1)));
+    if(r.error||!(r.plates||[]).length)return `<div class="plate-row"><div class="src-name">${esc(name)}：整包 1 板</div></div>`;
+    const set=_mergePlateSel[si]=new Set(r.plates.map(p=>p.plater_id));
+    const chips=r.plates.map(p=>{
+      const label=`板${p.plater_id}${p.name&&p.name!==('板'+p.plater_id)?'·'+p.name:''}（${p.objects}对象）`;
+      return `<span class="plate-chip on" data-si="${si}" data-pid="${p.plater_id}" onclick="mergePickPlate(${si},${p.plater_id},this)">${esc(label)}</span>`;
+    }).join('');
+    return `<div class="plate-row"><div class="src-name">${esc(name)}：</div>${chips}</div>`;
+  }).join('');
   // 缩略图候选：各源文件的缩略图（缺省退回首张摆盘图），供确认弹窗点选；默认选第一个
   const cands=ids.map(id=>{const f=_fileById[id];if(!f)return null;
     const img=((f.thumb||(f.plate_imgs||'').split(',')[0]||'')+'').trim();
     return img?{id,img,name:(f.alias&&f.alias!==f.filename)?f.alias:f.filename}:null}).filter(Boolean);
   _mergeThumbFid=cands.length?cands[0].id:0;
   const thmRow=cands.length?`<br><br><div class="hint" style="margin:0 0 6px">新记录缩略图（点击选用）：</div><div class="thm-row">${cands.map(c=>`<span class="thm-opt${c.id===_mergeThumbFid?' on':''}" title="${esc(c.name)}" onclick="mergePickThumb(${c.id},this)"><img src="/thumbs/${c.img}" alt=""></span>`).join('')}<span class="thm-opt thm-none" onclick="mergePickThumb(0,this)">不导入</span></div>`:'';
+  const plateBlock=plateRows?`<br><div class="hint" style="margin:0 0 6px">参与合并的板（点选去掉不需要的板，板内位置保持不变）：</div>${plateRows}`:'';
   if(!await uiConfirm({title:'合并导出',okText:'合并导出',okClass:'btn p',
-    body:`将把 <b>${ids.length}</b> 个模型拼盘合并为 <b>1 个新 3mf</b>：自动并排摆放，生成新记录入库（待整理），并创建分组——新文件为主、原文件为组件。<br><br>原文件保持不变；合并产物不含切片配置，打印前请用 Bambu Studio 重新切片。${thmRow}`}))return;
+    body:`将把 <b>${ids.length}</b> 个模型各自落板合并为 <b>1 个多板 3mf</b>：每个源的每块板原样保留为新板，板内摆放与颜色不变；生成新记录入库（待整理），并创建分组——新文件为主、原文件为组件。<br><br>原文件保持不变；合并产物不含切片配置，打印前请用 Bambu Studio 重新切片。${plateBlock}${thmRow}`}))return;
+  const plates={};
+  for(const siStr of Object.keys(_mergePlateSel)){
+    const arr=[..._mergePlateSel[siStr]];
+    if(!arr.length){toast('每个源至少保留 1 块板');return}
+    plates[siStr]=arr;
+  }
   try{
-    const r=await fetch('/api/merge-export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,thumb_file_id:_mergeThumbFid})});
+    const r=await fetch('/api/merge-export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,thumb_file_id:_mergeThumbFid,plates})});
     const j=await r.json();
     if(!r.ok){toast(j.error||'合并失败');return}
     _selIds.clear();toggleMultiMode(false);loadStats();
