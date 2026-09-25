@@ -1433,7 +1433,7 @@ async function applyCategory(id,btn){
   refreshDrawerData();
 }
 async function openArchive(id){const r=await fetch('/api/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('已在文件管理器中打开')}
-async function openInBambu(id){const r=await fetch('/api/open-in-bambu',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('正在用 Bambu Studio 打开')}
+async function openInBambu(id){const r=await fetch('/api/open-in-bambu',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const j=await r.json();if(!r.ok){toast(j.error||'打开失败');return}toast('正在用 Bambu Studio 打开');trackView(id)}
 function copyHash(btn){const h=btn.getAttribute('data-hash');if(!h){toast('无 SHA256 可复制');return}const done=()=>{toast('已复制 SHA256')};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(done).catch(()=>fallbackCopy(h,done))}else{fallbackCopy(h,done)}}
 function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('复制失败')}document.body.removeChild(ta)}
 
@@ -2199,7 +2199,7 @@ async function loadRecent(){
       ${f.thumb?`<img src="/thumbs/${f.thumb}" alt="">`:'<div class="rc-empty">未上传</div>'}
       <div class="rc-n">${esc(f.alias||f.filename)}</div>
       <div class="rc-t">${esc((f.last_viewed_at||'').slice(5,16))}</div></div>`).join('')
-      :'<div class="hint">暂无记录；打开过模型详情后会显示在这里。</div>';
+      :'<div class="hint">暂无记录；打开过模型详情或用 Bambu 打开后会显示在这里。</div>';
   }catch(e){$('#dashRecent').innerHTML='<div class="hint">加载失败</div>'}
 }
 
