@@ -10,6 +10,7 @@
 #
 # 环境变量:
 #   PORT    端口（默认 8000）
+#   NO_OPEN 置 1 则启动后不自动打开浏览器
 #   PYTHON  python 解释器（默认优先使用 .venv，其次系统 python3）
 
 set -euo pipefail
@@ -53,6 +54,9 @@ do_start() {
   sleep 1
   if kill -0 "$pid" 2>/dev/null; then
     echo "已启动 (PID $pid)"
+    if [[ "${NO_OPEN:-0}" != "1" ]] && command -v open >/dev/null 2>&1; then
+      open "http://127.0.0.1:$PORT" || true
+    fi
   else
     echo "启动失败，查看 $ERR_FILE"
     rm -f "$PID_FILE"
