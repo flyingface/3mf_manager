@@ -818,9 +818,12 @@ class Handler(BaseHTTPRequestHandler):
         conn = db_conn()
         conn.execute("DELETE FROM attachments")
         conn.execute("DELETE FROM files")
+        # 分组依赖文件记录（cover_file_id/成员 file_id），必须一并清空，否则残留分组会撞号新文件
+        conn.execute("DELETE FROM group_members")
+        conn.execute("DELETE FROM asset_groups")
         # 重置自增 id 计数，让后续上传的 id 从 1 重新编号（完全恢复新装状态）
         try:
-            conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('files','attachments')")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('files','attachments','asset_groups')")
         except sqlite3.OperationalError:
             pass  # 表尚无自增记录时该表不存在，忽略
         conn.commit(); conn.close()
