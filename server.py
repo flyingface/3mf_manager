@@ -744,6 +744,32 @@ class Handler(BaseHTTPRequestHandler):
         rows = conn.execute("SELECT sha256, COUNT(*) c, GROUP_CONCAT(filename,' | ') fs FROM files WHERE sha256!='' GROUP BY sha256 HAVING c>1").fetchall()
         return [dict(r) for r in rows]
 
+    def _api_track_view(self, data):
+        """记录「最近打开」：前端打开详情抽屉时上报，写 files.last_viewed_at。"""
+        fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        conn = db_conn()
+        cur = conn.execute("UPDATE files SET last_viewed_at=? WHERE id=?", (ts, fid))
+        conn.commit(); conn.close()
+        if cur.rowcount == 0:
+            self._send(404, {"error": "not found"}); return
+        self._send(200, {"ok": True, "id": fid, "last_viewed_at": ts})
+
+    def _api_recent(self, q):
+        """仪表盘「最近打开」：按 last_viewed_at 倒序取最近看过详情的文件。"""
+        try:
+            limit = min(50, max(1, int(q.get("limit", ["8"])[0] or 8)))
+        except ValueError:
+            limit = 8
+        conn = db_conn()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, filename, title, alias, thumb, category, status, printed, size_mb, last_viewed_at"
+            " FROM files WHERE last_viewed_at!='' ORDER BY last_viewed_at DESC, id DESC LIMIT ?", (limit,))]
+        conn.close()
+        self._send(200, {"files": rows, "count": len(rows)})
+
     def _api_categories(self, _=None):
         conn = db_conn()
         uniq = {}
@@ -945,7 +971,7 @@ class Handler(BaseHTTPRequestHandler):
         plate_imgs = ",".join(plate_files)
         conn = db_conn()
         # INSERT OR REPLACE 会把未指定列重置为默认值，先取出旧标记以便保住用户已打的"已打印"
-        prev = conn.execute("SELECT printed FROM files WHERE abs_path=?", (path,)).fetchone()
+        prev = conn.execute("SELECT printed, last_viewed_at FROM files WHERE abs_path=?", (path,)).fetchone()
         conn.execute("""
             INSERT OR REPLACE INTO files
             (abs_path, filename, folder, size_mb, title, designer, license, creation_date,
@@ -959,6 +985,8 @@ class Handler(BaseHTTPRequestHandler):
               "pending", "", thumb_name, plate_imgs, rel, time.strftime("%Y-%m-%d %H:%M:%S")))
         if prev and prev["printed"]:
             conn.execute("UPDATE files SET printed=? WHERE abs_path=?", (prev["printed"], path))
+        if prev and prev["last_viewed_at"]:
+            conn.execute("UPDATE files SET last_viewed_at=? WHERE abs_path=?", (prev["last_viewed_at"], path))
         conn.commit()
         rec = dict(conn.execute("SELECT * FROM files WHERE abs_path=?", (path,)).fetchone())
         conn.close()
@@ -2081,6 +2109,7 @@ class Handler(BaseHTTPRequestHandler):
 GET_ROUTES = {
     "/api/stats": Handler._api_stats,
     "/api/files": Handler._api_search,
+    "/api/recent": Handler._api_recent,
     "/api/about": Handler._api_about,
     "/api/categories": Handler._api_categories,
     "/api/config": Handler._api_get_config,
@@ -2099,6 +2128,7 @@ POST_ROUTES = {
     "/api/apply": Handler._api_apply,
     "/api/tags": Handler._api_set_tags,
     "/api/set-printed": Handler._api_set_printed,
+    "/api/track-view": Handler._api_track_view,
     "/api/delete": Handler._api_delete,
     "/api/thumbnail": Handler._api_thumbnail,
     "/api/delete-thumb": Handler._api_delete_thumb,

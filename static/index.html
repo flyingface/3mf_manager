@@ -333,6 +333,14 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .dash-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;text-align:center}
 .dash-card .num{font-size:28px;font-weight:600;color:var(--primary);font-variant-numeric:tabular-nums}
 .dash-card .lbl{font-size:12px;color:var(--muted);margin-top:4px}
+/* 最近打开（点击卡片重新打开详情抽屉） */
+.recent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.rcard{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg);cursor:pointer;transition:.15s}
+.rcard:hover{border-color:var(--primary);transform:translateY(-1px)}
+.rcard img,.rcard .rc-empty{width:100%;height:64px;object-fit:cover;display:block;background:var(--bg2)}
+.rcard .rc-empty{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)}
+.rcard .rc-n{padding:6px 8px 2px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rcard .rc-t{padding:0 8px 7px;font-size:10px;color:var(--muted)}
 /* ---- 设置 ---- */
 .form-row{display:grid;grid-template-columns:130px 1fr;gap:8px 14px;align-items:center;margin-bottom:14px}
 .form-row label{font-size:13px;color:var(--muted);text-align:right}
@@ -476,6 +484,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
     <!-- ===== 仪表盘 ===== -->
     <section id="view-dash">
       <div class="panel"><div class="panel-h">资产总览</div><div class="dash-grid" id="dashGrid"></div></div>
+      <div class="panel"><div class="panel-h">最近打开</div><div class="recent-grid" id="dashRecent"></div></div>
       <div class="panel"><div class="panel-h">分类分布</div><div id="dashCats"></div></div>
       <div class="panel"><div class="panel-h">Hash 重复提示</div><div id="dashDup"></div></div>
     </section>
@@ -866,6 +875,12 @@ async function openDrawer(id){
   renderDrawer(f);
   $('#drawerMask').classList.add('show');
   $('#drawer').classList.add('show');
+  trackView(id);
+}
+// 上报「最近打开」；仪表盘正显示时静默刷新最近面板，关掉抽屉即可见
+function trackView(id){
+  fetch('/api/track-view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
+    .then(r=>{if(r.ok&&document.getElementById('view-dash').style.display!=='none')loadRecent()}).catch(()=>{});
 }
 function closeDrawer(){_drawerId=null;$('#drawerMask').classList.remove('show');$('#drawer').classList.remove('show')}
 function refreshDrawer(){if(_drawerId==null)return;const f=_fileById[_drawerId];if(f)renderDrawer(f)}
@@ -2173,6 +2188,19 @@ async function loadDash(){const r=await fetch('/api/stats');const j=await r.json
   const fr=await fetch('/api/files');const fj=await fr.json();cacheFiles(fj.files);const seen={},dups=[];
   fj.files.forEach(f=>{if(!f.sha256)return;if(seen[f.sha256])dups.push([seen[f.sha256],f]);else seen[f.sha256]=f});
   $('#dashDup').innerHTML=dups.length?dups.map(([a,b])=>`<span class="pill r">${esc(a.filename)} ⚠ 与 ${esc(b.filename)} 相同</span>`).join(' '):'<div class="hint">无内容重复</div>';
+  loadRecent();
+}
+// ===== 仪表盘·最近打开 =====
+async function loadRecent(){
+  try{
+    const r=await fetch('/api/recent');const j=await r.json();const rec=j.files||[];
+    rec.forEach(f=>{_fileById[f.id]=Object.assign({},_fileById[f.id],f)}); // 并入缓存，点卡片直接开抽屉
+    $('#dashRecent').innerHTML=rec.length?rec.map(f=>`<div class="rcard" onclick="openDrawer(${f.id})" title="${esc(f.filename)}">
+      ${f.thumb?`<img src="/thumbs/${f.thumb}" alt="">`:'<div class="rc-empty">未上传</div>'}
+      <div class="rc-n">${esc(f.alias||f.filename)}</div>
+      <div class="rc-t">${esc((f.last_viewed_at||'').slice(5,16))}</div></div>`).join('')
+      :'<div class="hint">暂无记录；打开过模型详情后会显示在这里。</div>';
+  }catch(e){$('#dashRecent').innerHTML='<div class="hint">加载失败</div>'}
 }
 
 // ===== 查看器 =====

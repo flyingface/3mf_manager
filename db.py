@@ -20,7 +20,8 @@ import sqlite3
 #   2 = files.rel_path / attachments.rel_path（相对库根路径，切换库根后可重定 abs_path）
 #   3 = 作品关联图层（asset_groups / group_members，目录之上的关系层）
 #   4 = files.printed（模型级打印标记，可按已打印/未打印筛选）
-SCHEMA_VERSION = 4
+#   5 = files.last_viewed_at（最近打开时间，仪表盘「最近打开」）
+SCHEMA_VERSION = 5
 
 
 def db_conn(db_path):
@@ -113,7 +114,13 @@ def _migrate_v4(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_files_printed ON files(printed)")
 
 
-_MIGRATIONS = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4}
+def _migrate_v5(conn):
+    # 最近打开时间：打开详情抽屉时由应用层写入；仅加列加索引，不动既有数据
+    _add_column(conn, "files", "last_viewed_at", "TEXT DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_viewed ON files(last_viewed_at)")
+
+
+_MIGRATIONS = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4, 5: _migrate_v5}
 
 
 def init_db(db_path, library_root, inbox, thumb_dir, attach_dir):
