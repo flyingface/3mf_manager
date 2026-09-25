@@ -159,6 +159,7 @@ input::placeholder{color:var(--tert)}
 .pill.comp{background:var(--primary-soft);color:var(--primary-d)}
 .pill.var{background:var(--warn-soft);color:var(--warn);border:1px dashed var(--warn-border)}
 .pill.clickable{cursor:pointer}
+.pill.prn{background:var(--bg2);color:var(--muted)}
 .pillgrp{display:flex;gap:4px;flex-wrap:wrap;margin:7px 0}
 .card-hd .meta{font-size:11px;color:var(--tert);margin-top:auto;line-height:1.5}
 .card-hd .meta .pid{font-family:ui-monospace,Menlo,monospace}
@@ -521,6 +522,7 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <input type="text" id="q" placeholder="搜索 文件名/标题/归档名/MakeWorld ID/tag..." style="flex:1;min-width:200px" oninput="debouncedSearch()">
             <select id="f-cat" onchange="libPage=1;search()"><option value="">全部分类</option></select>
             <select id="f-status" onchange="libPage=1;search()"><option value="">全部状态</option><option value="pending">待整理</option><option value="applied" selected>已归档</option></select>
+            <select id="f-printed" onchange="libPage=1;search()"><option value="">全部打印状态</option><option value="1">已打印</option><option value="0">未打印</option></select>
             <button class="btn p" onclick="libPage=1;search()">查询</button>
           </div>
           <div id="selBar" class="toolbar" style="display:none;margin-bottom:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:10px"></div>
@@ -796,9 +798,11 @@ function cardHTML(f){
     ?`<div class="th-wrap"><img class="th" src="/thumbs/${f.thumb}" onclick="${thClick}" title="${esc(f.filename)}">${thMeta}${camBtn}${selBtn}</div>`
     :`<div class="th-wrap"><div class="th empty" title="${esc(f.filename)}" ${_multiMode?`style="cursor:pointer" onclick="selToggle(${f.id})"`:''}>未上传</div>${thMeta}${camBtn}${selBtn}</div>`;
   const catPill=f.category?`<span class="pill cat">${esc(f.category)}</span>`:'';
+  const printedPill=`<span class="pill clickable${f.printed?' cat':' prn'}" title="${f.printed?'点击标记为未打印':'点击标记为已打印'}" onclick="setPrinted(${f.id},${f.printed?0:1});event.stopPropagation()">${f.printed?'🖨 已打印':'🖨 未打印'}</span>`;
   // 头部主标题：优先用别名（更短可读），无别名则用文件名（单行省略）
   const headTitle=(f.alias&&f.alias!==f.filename)?f.alias:f.filename;
   const metaPills=`
+    ${printedPill}
     ${(f.is_duplicate&&!f.is_earliest)?`<span class="pill r" title="存在相同 SHA256 的文件，不可归档">重复</span>`:''}
     ${plates.length?`<span class="pill clickable" onclick="openViewer(${f.id})">摆盘×${plates.length}</span>`:''}`;
   // 状态显示：pending 一律显示「归档」按钮；非最早副本的重复文件禁用该按钮
@@ -894,6 +898,7 @@ function renderDrawer(f){
     <div class="kv">
       <b>文件名</b><span class="kv-val"><span class="kv-txt" title="${esc(f.filename)}">${esc(f.filename)}</span><button class="kv-ico" title="用 Bambu Studio 打开" onclick="openInBambu(${f.id})">${IC.print}</button></span>
       <b>分类</b><span>${esc(f.category||'—')}</span>
+      <b>打印状态</b><span class="kv-val"><span class="pill${f.printed?' cat':' prn'}">${f.printed?'已打印':'未打印'}</span><button class="kv-ico" title="${f.printed?'标记为未打印':'标记为已打印'}" onclick="setPrinted(${f.id},${f.printed?0:1})">${f.printed?'↩':'🖨'}</button></span>
       <b>归档路径</b><span class="kv-val"><span class="kv-txt" title="${esc(f.target_dir||'')}">${esc(f.target_dir||'—')}</span><button class="kv-ico" title="在文件管理器中打开" onclick="openArchive(${f.id})">${IC.folder}</button></span>
       <b>SHA256</b><span class="kv-val"><span class="pill hash" title="${esc(f.sha256||'')}">${esc((f.sha256||'').slice(0,12))}…</span><button class="kv-ico" title="复制完整 SHA256" data-hash="${esc(f.sha256||'')}" onclick="copyHash(this)">${IC.copy}</button></span>
       <b>MakeWorld</b><span class="pid">${esc(f.design_id||'—')}</span>
@@ -1460,7 +1465,23 @@ async function returnToPending(id){
 let _dt;function debouncedSearch(){clearTimeout(_dt);_dt=setTimeout(()=>{libPage=1;search()},300)}
 async function loadCatFilter(){const r=await fetch('/api/categories');const j=await r.json();const fr=await fetch('/api/files');const fj=await fr.json();const uniq=new Set();fj.files.forEach(f=>{if(f.category)uniq.add(f.category.split(' · ')[0])});$('#f-cat').innerHTML='<option value="">全部分类</option>'+[...uniq].sort().map(c=>`<option>${esc(c)}</option>`).join('')}
 let libPage=1,libPageSize=20,libItems=[],libTotal=0;
-async function search(){$('#libWrap').innerHTML=skeletonHTML(6);try{const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value;const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);p.set('limit',libPageSize);p.set('offset',(libPage-1)*libPageSize);const r=await fetch('/api/files?'+p);const j=await r.json();libItems=j.files||[];libTotal=(j.total!=null)?j.total:libItems.length;cacheFiles(libItems);paintLib()}catch(e){$('#libWrap').innerHTML=emptyHTML('⚠','加载失败','无法获取模型列表，请确认服务是否在运行。','')}}
+async function search(){$('#libWrap').innerHTML=skeletonHTML(6);try{const q=$('#q').value.trim(),cat=$('#f-cat').value,status=$('#f-status').value,printed=$('#f-printed')?$('#f-printed').value:'';const p=new URLSearchParams();if(q)p.set('q',q);if(cat)p.set('cat',cat);if(status)p.set('status',status);if(printed)p.set('printed',printed);p.set('limit',libPageSize);p.set('offset',(libPage-1)*libPageSize);const r=await fetch('/api/files?'+p);const j=await r.json();libItems=j.files||[];libTotal=(j.total!=null)?j.total:libItems.length;cacheFiles(libItems);paintLib()}catch(e){$('#libWrap').innerHTML=emptyHTML('⚠','加载失败','无法获取模型列表，请确认服务是否在运行。','')}}
+
+// ===== 打印标记（files.printed）：卡片/抽屉一键切换 + 列表筛选 =====
+async function setPrinted(id,val){
+  try{
+    const r=await fetch('/api/set-printed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,printed:!!val})});
+    const j=await r.json();
+    if(!r.ok){toast(j.error||'标记失败');return}
+    const f=_fileById[id];if(f)f.printed=val?1:0;
+    toast(val?'已标记为已打印':'已标记为未打印');
+    // 开着打印筛选时重查（总数/分页会变），否则用缓存就地重绘；待整理页与抽屉同步刷新
+    if($('#f-printed')&&$('#f-printed').value!==''){libPage=1;search()}
+    else paintLib();
+    if(window._pendingIds&&window._pendingIds.includes(id))renderPending(window._pendingIds.map(x=>_fileById[x]).filter(Boolean));
+    if(_drawerId===id)refreshDrawer();
+  }catch(e){toast('标记失败：'+e.message)}
+}
 function paintLib(){
   const pages=Math.max(1,Math.ceil(libTotal/libPageSize));
   // 翻页越界（最后一页文件被归档/删除后 offset 落空）：回退到有效页重取，而非显示假「未找到」

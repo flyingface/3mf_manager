@@ -19,7 +19,8 @@ import sqlite3
 #   1 = 基础表（files/attachments/settings + 索引 + files.plate_imgs）
 #   2 = files.rel_path / attachments.rel_path（相对库根路径，切换库根后可重定 abs_path）
 #   3 = 作品关联图层（asset_groups / group_members，目录之上的关系层）
-SCHEMA_VERSION = 3
+#   4 = files.printed（模型级打印标记，可按已打印/未打印筛选）
+SCHEMA_VERSION = 4
 
 
 def db_conn(db_path):
@@ -106,7 +107,13 @@ def _migrate_v3(conn):
     """)
 
 
-_MIGRATIONS = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3}
+def _migrate_v4(conn):
+    # 模型级打印标记：1=已打印 0=未打印（旧记录默认 0）；仅加列加索引，不动既有数据
+    _add_column(conn, "files", "printed", "INTEGER DEFAULT 0")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_printed ON files(printed)")
+
+
+_MIGRATIONS = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4}
 
 
 def init_db(db_path, library_root, inbox, thumb_dir, attach_dir):

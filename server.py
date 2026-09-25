@@ -118,7 +118,8 @@ def group_rows_for(conn, group_id):
     g = conn.execute("SELECT * FROM asset_groups WHERE id=?", (group_id,)).fetchone()
     if not g:
         return None, []
-    members = [dict(m) | dict(f) for m, f in (
+    # 文件行覆盖组员行（同名取文件），唯独组员级 printed 是打印清单标记，需保留不被 files.printed 遮蔽
+    members = [dict(m) | dict(f) | {"printed": m["printed"]} for m, f in (
         (m, conn.execute("SELECT * FROM files WHERE id=?", (m["file_id"],)).fetchone())
         for m in conn.execute(
             "SELECT * FROM group_members WHERE group_id=? ORDER BY is_primary DESC, id", (group_id,)
@@ -839,6 +840,7 @@ class Handler(BaseHTTPRequestHandler):
         status = q.get("status", [""])[0].strip()
         tag = q.get("tag", [""])[0].strip()
         design = q.get("design_id", [""])[0].strip()
+        printed = q.get("printed", [""])[0].strip()
         try:
             limit = max(0, int(q.get("limit", ["0"])[0] or 0))
             offset = max(0, int(q.get("offset", ["0"])[0] or 0))
@@ -856,6 +858,8 @@ class Handler(BaseHTTPRequestHandler):
             where.append("tags LIKE ?"); args.append(f"%{tag}%")
         if design:
             where.append("design_id LIKE ?"); args.append(f"%{design}%")
+        if printed in ("0", "1"):
+            where.append("printed=?"); args.append(int(printed))
         wsql = (" WHERE " + " AND ".join(where)) if where else ""
         conn = db_conn()
         # ---- 重复判定在全量过滤集上计算（分页可能把同组切到不同页）----
@@ -935,6 +939,8 @@ class Handler(BaseHTTPRequestHandler):
             LOG.warning("提取摆盘图失败 %s: %s", path, traceback.format_exc(limit=1))
         plate_imgs = ",".join(plate_files)
         conn = db_conn()
+        # INSERT OR REPLACE 会把未指定列重置为默认值，先取出旧标记以便保住用户已打的"已打印"
+        prev = conn.execute("SELECT printed FROM files WHERE abs_path=?", (path,)).fetchone()
         conn.execute("""
             INSERT OR REPLACE INTO files
             (abs_path, filename, folder, size_mb, title, designer, license, creation_date,
@@ -946,6 +952,8 @@ class Handler(BaseHTTPRequestHandler):
               meta["objects"], meta["vertices"], meta["triangles"], meta["plates"],
               1 if meta["has_slice"] else 0, meta["geom_sig"], h, category, alias, target,
               "pending", "", thumb_name, plate_imgs, rel, time.strftime("%Y-%m-%d %H:%M:%S")))
+        if prev and prev["printed"]:
+            conn.execute("UPDATE files SET printed=? WHERE abs_path=?", (prev["printed"], path))
         conn.commit()
         rec = dict(conn.execute("SELECT * FROM files WHERE abs_path=?", (path,)).fetchone())
         conn.close()
@@ -1804,6 +1812,19 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "tags": tags})
 
+    def _api_set_printed(self, data):
+        """标记模型已打印/未打印（files.printed），供卡片按钮与筛选使用。"""
+        fid = data.get("id")
+        if not fid:
+            self._send(400, {"error": "need id"}); return
+        val = 1 if data.get("printed") else 0
+        conn = db_conn()
+        cur = conn.execute("UPDATE files SET printed=? WHERE id=?", (val, fid))
+        conn.commit(); conn.close()
+        if cur.rowcount == 0:
+            self._send(404, {"error": "not found"}); return
+        self._send(200, {"ok": True, "id": fid, "printed": bool(val)})
+
     def _api_delete(self, data):
         fid = data.get("id")
         if not fid:
@@ -2072,6 +2093,7 @@ POST_ROUTES = {
     "/api/upload": Handler._api_upload,
     "/api/apply": Handler._api_apply,
     "/api/tags": Handler._api_set_tags,
+    "/api/set-printed": Handler._api_set_printed,
     "/api/delete": Handler._api_delete,
     "/api/thumbnail": Handler._api_thumbnail,
     "/api/delete-thumb": Handler._api_delete_thumb,
