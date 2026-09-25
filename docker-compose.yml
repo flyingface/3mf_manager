@@ -1,0 +1,17 @@
+services:
+  mfmanager:
+    build: .
+    image: mfmanager:latest
+    container_name: mfmanager
+    restart: unless-stopped
+    ports:
+      - "8000:8000"          # 宿主机端口:容器端口（改宿主机端口只动左边）
+    environment:
+      PORT: 8000             # 容器内监听端口
+      # MFMANAGER_HOST: 0.0.0.0
+      # MFMANAGER_DATA_DIR: /data
+    volumes:
+      - ./data:/data         # 数据盘外挂：config.json / library.db / thumbs / attachments / .trash / logs / library
+    # 若要挂载宿主机已有模型目录（替代 ./data/library），在下面追加挂载，
+    # 并同步把 ./data/config.json 的 paths.library_root 改为容器内路径（如 /models）：
+    #   - /volume1/3mf_models:/models

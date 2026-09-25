@@ -24,3 +24,5 @@ dist/
 .DS_Store
 *.log
 _multipart_debug.log
+data/
+docker-compose.override.yml

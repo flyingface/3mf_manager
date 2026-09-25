@@ -30,11 +30,13 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
-DB_PATH = os.path.join(BASE, "library.db")
-THUMB_DIR = os.path.join(BASE, "thumbs")
-ATTACH_DIR = os.path.join(BASE, "attachments")
-TRASH_DIR = os.path.join(BASE, ".trash")
-LOG_DIR = os.path.join(BASE, "logs")
+# Docker 部署时通过 MFMANAGER_DATA_DIR 把数据库/缩略图/附件/回收站/日志外挂到数据盘；缺省保持与代码同目录
+DATA_DIR = os.environ.get("MFMANAGER_DATA_DIR") or BASE
+DB_PATH = os.path.join(DATA_DIR, "library.db")
+THUMB_DIR = os.path.join(DATA_DIR, "thumbs")
+ATTACH_DIR = os.path.join(DATA_DIR, "attachments")
+TRASH_DIR = os.path.join(DATA_DIR, ".trash")
+LOG_DIR = os.path.join(DATA_DIR, "logs")
 
 import llm_client            # 配置 + LLM 客户端
 import parse_3mf            # 复用解析器
@@ -2134,14 +2136,15 @@ except ImportError:  # 直接以脚本运行且模块缺失时的兜底
 
 # ---------------------------------------------------------------
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", "8000"))
+    host = os.environ.get("MFMANAGER_HOST", "127.0.0.1")  # 容器部署需监听 0.0.0.0，本机默认仍只监听回环
     _setup_logging()
     init_db()
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = ThreadingHTTPServer((host, port), Handler)
     print("=" * 60)
     print(f"  3MF Manager v{__version__} — 3D 打印文件管理器")
     print("  " + "-" * 54)
-    print(f"  页面   : http://127.0.0.1:{port}")
+    print(f"  页面   : http://{host}:{port}")
     print(f"  收藏目录: {LIBRARY_ROOT}")
     print(f"  待整理箱: {INBOX}")
     print(f"  LLM    : {'已配置 ' + llm_client.load_config()['llm']['model'] if llm_client.llm_configured() else '未配置（设置中填写）'}")

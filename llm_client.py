@@ -14,7 +14,8 @@ import json, os, re
 import urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE, "config.json")
+# Docker 部署时通过 MFMANAGER_CONFIG 把配置外挂到数据盘；缺省保持与代码同目录
+CONFIG_PATH = os.environ.get("MFMANAGER_CONFIG") or os.path.join(BASE, "config.json")
 
 DEFAULT_CONFIG = {
     "llm": {

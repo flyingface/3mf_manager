@@ -1,0 +1,33 @@
+# 构建上下文瘦身 + 严禁把用户数据/密钥打进镜像
+.git
+.github
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+.zcode/
+.DS_Store
+
+# 用户数据（本机开发数据绝不入镜像）
+config.json
+library.db
+thumbs/
+attachments/
+.trash/
+logs/
+run/
+result.json
+data/
+
+# 文档与开发辅助
+*.md
+docs/
+design/
+tests/
+scripts/
+3mf_manager.egg-info/
+uv.lock
+pyproject.toml
+service.sh
