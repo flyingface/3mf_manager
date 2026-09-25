@@ -26,3 +26,7 @@ dist/
 _multipart_debug.log
 data/
 docker-compose.override.yml
+
+# ---- 本地工具与调试产物 ----
+.zcode/
+result.json
