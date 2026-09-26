@@ -2,6 +2,11 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.8.2] - 2026-09-26
+
+### 修复
+- **合并产物 Bambu Studio 打不开的真正根因**：源工程配置里「挤出机变体表」与料槽数失配（如 `filament_colour` 10 个料但 `filament_extruder_variant` / `filament_self_index` 只有 9 行）时，合并产物被 Bambu Studio GUI 整包拒开——报「Invalid configuration file」+「此文件不包含任何几何数据」（模型加载被异常中断所致；CLI 切片不走该校验，故只有 GUI 失败，且 Bambu 自己重新保存也无法修复）。现合并时强制把两表补齐到等长且 ≥ 料槽数（只延长不截断、沿用末行、保持元素类型），已用 GUI 实测验证补齐后 7 板 10 料完整加载。2.8.1 的英文文件名修改保留（可避免另一类路径兼容问题）。
+
 ## [2.8.1] - 2026-09-26
 
 ### 修复

@@ -590,3 +590,39 @@ def test_merge_export_api_plates_mode_and_listing(client):
     z2 = zipfile.ZipFile(r2["file"]["abs_path"])
     cfg2 = ET.fromstring(z2.read("Metadata/model_settings.config"))
     assert not cfg2.findall("plate")
+
+
+def test_merge_fixes_extruder_variant_mismatch(tmp_path):
+    """源 project_settings 自带失配（10 料槽但变体/self_index 只有 9 行）时，
+    合并产物必须把两表补齐到等长且 ≥ 料槽数——Bambu GUI 的
+    PresetBundle::load_config_file_config 校验不过会整包拒载（"Invalid
+    configuration file"+ 无几何数据，CLI 切片不校验故只在 GUI 复现）。"""
+    pa = tmp_path / "a.3mf"
+    pb = tmp_path / "b.3mf"
+    pa.write_bytes(_bambu_project_pkg(extruder=1, colors=tuple(f"#{i:06X}" for i in range(10, 20))))
+    # 人为制造源内失配：在 A 的配置里把两表截成 9 行（10 料槽）
+    za = zipfile.ZipFile(pa)
+    ps = json.loads(za.read("Metadata/project_settings.config").decode())
+    ps["extruder_variant_list"] = ["Direct Drive Standard,Direct Drive High Flow"]
+    ps["filament_extruder_variant"] = ["Direct Drive Standard", "Direct Drive High Flow"] * 4 + ["Direct Drive Standard"]
+    ps["filament_self_index"] = [str(i) for i in range(1, 10)]  # 字符串，与源一致
+    za.close()
+    pa.write_bytes(_pkg({
+        "3D/3dmodel.model": zipfile.ZipFile(str(pa)).read("3D/3dmodel.model"),
+        "3D/Objects/object_1.model": zipfile.ZipFile(str(pa)).read("3D/Objects/object_1.model"),
+        "Metadata/project_settings.config": json.dumps(ps),
+        "Metadata/model_settings.config": zipfile.ZipFile(str(pa)).read("Metadata/model_settings.config"),
+    }))
+    pb.write_bytes(_bambu_project_pkg(extruder=1, colors=("#123456",)))
+
+    data = merge([str(pa), str(pb)], title="失配修复")
+    z = zipfile.ZipFile(io.BytesIO(data))
+    out = json.loads(z.read("Metadata/project_settings.config").decode())
+    n = len(out["filament_colour"])
+    assert n == 11  # A 10 色 + B 1 新色
+    assert len(out["filament_extruder_variant"]) == len(out["filament_self_index"]) == n
+    # 只延长不截断：前 9 行保留原值
+    assert out["filament_extruder_variant"][:9] == ["Direct Drive Standard", "Direct Drive High Flow"] * 4 + ["Direct Drive Standard"]
+    assert out["filament_self_index"][:9] == [str(i) for i in range(1, 10)]
+    # 元素类型与源一致（self_index 保持字符串）
+    assert all(isinstance(x, str) for x in out["filament_self_index"])

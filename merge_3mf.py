@@ -734,6 +734,19 @@ def merge(paths, title="", mode="plates", plate_filter=None):
                 ps = {}
             ps["filament_colour"] = list(bases)
             ps["filament_type"] = list(ftypes)
+            # Bambu GUI 校验（PresetBundle::load_config_file_config）：配置含 extruder_variant_list
+            # 时，filament_extruder_variant 与 filament_self_index 必须等长且数量 ≥ 料槽数，
+            # 否则整包判 "Invalid configuration file" 并放弃加载模型（随后报"无几何数据"）。
+            # CLI 切片不校验，故只在 GUI 复现。源文件自带的失配（料槽数 ≠ 变体行数）在此
+            # 统一补齐：只延长不截断，沿用末行值，保持元素类型与源一致（self_index 为字符串）。
+            fev = ps.get("filament_extruder_variant")
+            fsi = ps.get("filament_self_index")
+            if isinstance(fev, list) and isinstance(fsi, list) and fev and fsi:
+                target = max(len(fev), len(fsi), len(bases))
+                if len(fev) != target:
+                    ps["filament_extruder_variant"] = fev + [fev[-1]] * (target - len(fev))
+                if len(fsi) != target:
+                    ps["filament_self_index"] = fsi + [fsi[-1]] * (target - len(fsi))
             z.writestr("Metadata/project_settings.config",
                        json.dumps(ps, ensure_ascii=False))
     return buf.getvalue()
