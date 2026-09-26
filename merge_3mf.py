@@ -740,7 +740,15 @@ def merge(paths, title="", mode="plates", plate_filter=None):
 
 
 def build_export_name(n, ts=None):
-    return f"合并_{n}个模型_{ts or time.strftime('%Y%m%d_%H%M%S')}.3mf"
+    """导出文件的落盘名。必须保持 ASCII：Bambu Studio GUI 对含中文的文件路径
+    可能报「Invalid configuration file / 此文件不包含任何几何数据」而拒开
+    （同样的文件改 ASCII 路径后 CLI 三条加载路径全部通过，见 2.8.1 排查记录）。"""
+    return f"merge_{n}models_{ts or time.strftime('%Y%m%d_%H%M%S')}.3mf"
+
+
+def build_export_title(n, ts=None):
+    """导出记录的显示名（XML Title 元数据 / 别名 / 分组名），保留中文。"""
+    return f"合并_{n}个模型_{ts or time.strftime('%Y%m%d_%H%M%S')}"
 
 
 def list_plates(path):

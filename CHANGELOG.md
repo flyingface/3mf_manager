@@ -2,6 +2,11 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.8.1] - 2026-09-26
+
+### 修复
+- **合并产物 Bambu Studio 打开失败**：合并导出的落盘文件名含中文（`合并_2个模型_….3mf`），Bambu Studio GUI 打开时可能报「此文件不包含任何几何数据 / Invalid configuration file」而拒开——同样的文件内容在 CLI 三条加载路径（`--info` / `--slice` / `--export-3mf`）全部通过，问题出在非 ASCII 路径。现导出文件名改为 ASCII（`merge_2models_….3mf`，与 Bambu 自身命名习惯一致），显示名（XML Title / 别名 / 分组名）仍为中文。已生成的旧中文文件名产物不受影响，重新合并一次即可。
+
 ## [2.8.0] - 2026-09-25
 
 ### 新增

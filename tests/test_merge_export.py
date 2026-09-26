@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from merge_3mf import MergeError, merge, build_export_name, list_plates, apply_m, compose, parse_transform
+from merge_3mf import MergeError, merge, build_export_name, build_export_title, list_plates, apply_m, compose, parse_transform
 from tests.test_api import fetch, _make_3mf_bytes  # client fixture 在 conftest.py
 
 CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
@@ -477,7 +477,9 @@ def test_merge_sources_untouched(tmp_path):
 
 
 def test_export_name():
-    assert build_export_name(3, "20260915_120000") == "合并_3个模型_20260915_120000.3mf"
+    assert build_export_name(3, "20260915_120000") == "merge_3models_20260915_120000.3mf"
+    assert build_export_name(3, "20260915_120000").isascii()
+    assert build_export_title(3, "20260915_120000") == "合并_3个模型_20260915_120000"
 
 
 # ---------------- /api/merge-export 端到端（client fixture 在 conftest.py） ----------------
@@ -510,8 +512,11 @@ def test_merge_export_api_creates_record_and_group(client):
     # 核心约束：源文件字节一字未动
     for fid, p in ((fa["id"], fa["abs_path"]), (fb["id"], fb["abs_path"])):
         assert open(p, "rb").read() == snap[fid]
-    # 组名与文件名一致（去后缀）
-    assert g["name"] == f["filename"][:-4]
+    # 组名用中文显示名；落盘文件名必须全 ASCII（Bambu GUI 对中文路径可能拒开）
+    assert g["name"] == f"合并_2个模型_" + f["filename"][len("merge_2models_"):-4]
+    stem = f["filename"][:-4]
+    assert stem == f"merge_2models_" + g["name"][len("合并_2个模型_"):]
+    assert stem.isascii() and f["rel_path"].isascii()
 
 
 def test_merge_export_api_rejections(client):

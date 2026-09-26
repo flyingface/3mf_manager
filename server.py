@@ -1051,7 +1051,8 @@ class Handler(BaseHTTPRequestHandler):
             if not p or not os.path.exists(p):
                 self._send(400, {"error": f"源文件缺失：{row['filename']}"}); return
             paths.append(p)
-        base = merge_3mf.build_export_name(len(paths))[:-4]
+        base = merge_3mf.build_export_name(len(paths))[:-4]  # 落盘文件名（ASCII，Bambu GUI 对中文路径可能拒开）
+        title = merge_3mf.build_export_title(len(paths))     # 显示名（中文）：XML Title / 别名 / 分组名
         # mode="plates"（默认）各自落板——每块源板成为产物一块板、位置不动；
         # mode="single" 摊平重摆到一块板。plates 为人工选板 {源序号: [plater_id]}。
         mode = data.get("mode") or "plates"
@@ -1067,7 +1068,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     self._send(400, {"error": "plates 需为 {源序号: [板号]} 结构"}); return
         try:
-            blob = merge_3mf.merge(paths, title=base, mode=mode, plate_filter=plate_filter)
+            blob = merge_3mf.merge(paths, title=title, mode=mode, plate_filter=plate_filter)
         except merge_3mf.MergeError as e:
             self._send(400, {"error": str(e)}); return
         export_dir = os.path.join(LIBRARY_ROOT, "exports")
@@ -1104,7 +1105,7 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
         # 自动建组：新记录为主（is_primary），源文件为 component（与手动建组的角色口径一致）
         conn = db_conn()
-        gname = os.path.splitext(os.path.basename(dest))[0]
+        gname = title
         cur = conn.execute("INSERT INTO asset_groups(name, kind, cover_file_id, created_at) VALUES(?,?,?,?)",
                            (gname, "kit", rec["id"], time.strftime("%Y-%m-%d %H:%M:%S")))
         gid = cur.lastrowid
