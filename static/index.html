@@ -119,6 +119,7 @@ input::placeholder{color:var(--tert)}
 /* ---- 网格与卡片 ---- */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;align-items:start}
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s;position:relative}
+.card.th-dragover{outline:2px dashed var(--primary);outline-offset:-3px}
 .card:hover{box-shadow:0 6px 24px rgba(16,24,40,.1)}
 .card.pending{border-top:3px solid var(--warn)}
 .card.applied{border-top:3px solid var(--ok)}
@@ -824,7 +825,7 @@ function cardHTML(f){
   }else{
     statusArea=`<span class="pill y">${esc(f.status||'未知')}</span>`;
   }
-  return `<div class="card ${f.status}${f.is_duplicate?' dup':''}">
+  return `<div class="card ${f.status}${f.is_duplicate?' dup':''}" data-fid="${f.id}">
     <div class="card-hd">
       ${thumb}
       <div class="cb">
@@ -1451,7 +1452,47 @@ async function refreshTags(id){
 }
 
 // ===== 缩略图/附件 =====
-function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,image/bmp,image/tiff';inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;if(!f.size){toast('未取到图片数据：Safari 从照片图库选图可能不兼容，请改用 Chrome，或在「照片」App 导出图片后再上传');return}const fd=new FormData();fd.append('id',id);fd.append('file',f);const r=await fetch('/api/thumbnail',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(/\.(heic|heif|bmp|tif|tiff)$/i.test(f.name)?'已上传并自动转换':'缩略图已更新');loadPending();if(typeof search==='function')search()}else{toast('上传失败：'+(j.error||'未知错误'))}};inp.click()}
+// Safari 从「照片」图库选图得到的是代理文件：size 可能报 0，FormData 直传也可能发出空 body。
+// 因此先在页面内把字节读出来（arrayBuffer 优先，blob URL 兜底），再以内存 File 重新打包上传。
+async function readThumbBytes(f){
+  try{const buf=await f.arrayBuffer();if(buf&&buf.byteLength)return buf}catch(e){}
+  try{const r=await fetch(URL.createObjectURL(f));const buf=await r.arrayBuffer();if(buf&&buf.byteLength)return buf}catch(e){}
+  return null
+}
+async function uploadThumbFile(id,f){
+  const buf=await readThumbBytes(f);
+  if(!buf){toast('未取到图片数据：请把照片从「照片」App 直接拖到卡片缩略图上，或先导出为 JPG/PNG 再选图上传');return}
+  const fd=new FormData();
+  fd.append('id',id);
+  fd.append('file',new File([buf],f.name||'photo.jpg',{type:f.type||'image/jpeg'}));
+  try{
+    const j=await(await fetch('/api/thumbnail',{method:'POST',body:fd})).json();
+    if(j.ok){toast(/\.(heic|heif|bmp|tif|tiff)$/i.test(f.name)?'已上传并自动转换':'缩略图已更新');loadPending();if(typeof search==='function')search()}
+    else toast('上传失败：'+(j.error||'未知错误'))
+  }catch(e){toast('上传失败：网络错误')}
+}
+function uploadThumb(id){const inp=document.createElement('input');inp.type='file';inp.accept='image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,image/bmp,image/tiff';inp.onchange=async e=>{const f=e.target.files[0];if(f)await uploadThumbFile(id,f)};inp.click()}
+// 从「照片」App / Finder 把图片直接拖到卡片上即可更换缩略图（Safari 相册选图最稳的替代路径）
+document.addEventListener('dragover',e=>{
+  if(!e.dataTransfer||![...e.dataTransfer.types].includes('Files'))return;
+  const card=e.target.closest?e.target.closest('.card[data-fid]'):null;
+  if(!card)return;
+  e.preventDefault();
+  card.classList.add('th-dragover');
+});
+document.addEventListener('dragleave',e=>{
+  const card=e.target.closest?e.target.closest('.card[data-fid]'):null;
+  if(card&&(!e.relatedTarget||!card.contains(e.relatedTarget)))card.classList.remove('th-dragover');
+});
+document.addEventListener('drop',e=>{
+  const card=e.target.closest?e.target.closest('.card[data-fid]'):null;
+  if(!card)return;
+  e.preventDefault();e.stopPropagation();
+  document.querySelectorAll('.card.th-dragover').forEach(c=>c.classList.remove('th-dragover'));
+  const files=[...(e.dataTransfer?e.dataTransfer.files:[])].filter(f=>/^image\//.test(f.type)||/\.(png|jpe?g|webp|gif|heic|heif|bmp|tiff?)$/i.test(f.name));
+  if(!files.length){toast('请拖入图片文件（PNG/JPG/HEIC 等）');return}
+  uploadThumbFile(parseInt(card.dataset.fid,10),files[0]);
+});
 function attachFile(id){document.querySelectorAll('.ctx').forEach(x=>x.style.display='none');const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.onchange=async e=>{const fd=new FormData();fd.append('id',id);[...e.target.files].forEach(f=>fd.append('file',f));const r=await fetch('/api/attach',{method:'POST',body:fd});const j=await r.json();if(j.ok){toast(`附件已关联 ${j.saved.length}`);refreshAttach(id)}else{toast('失败');loadPending()}};inp.click()}
 function attachmentsHTML(id, list){
   const atts=list||[];
@@ -1574,7 +1615,7 @@ async function mergeExport(){
   const thmRow=cands.length?`<br><br><div class="hint" style="margin:0 0 6px">新记录缩略图（点击选用）：</div><div class="thm-row">${cands.map(c=>`<span class="thm-opt${c.id===_mergeThumbFid?' on':''}" title="${esc(c.name)}" onclick="mergePickThumb(${c.id},this)"><img src="/thumbs/${c.img}" alt=""></span>`).join('')}<span class="thm-opt thm-none" onclick="mergePickThumb(0,this)">不导入</span></div>`:'';
   const plateBlock=plateRows?`<br><div class="hint" style="margin:0 0 6px">参与合并的板（点选去掉不需要的板，板内位置保持不变）：</div>${plateRows}`:'';
   if(!await uiConfirm({title:'合并导出',okText:'合并导出',okClass:'btn p',
-    body:`将把 <b>${ids.length}</b> 个模型各自落板合并为 <b>1 个多板 3mf</b>：每个源的每块板原样保留为新板，板内摆放与颜色不变；生成新记录入库（待整理），并创建分组——新文件为主、原文件为组件。<br><br>原文件保持不变；合并产物不含切片配置，打印前请用 Bambu Studio 重新切片。${plateBlock}${thmRow}`}))return;
+    body:`将把 <b>${ids.length}</b> 个模型各自落板合并为 <b>1 个多板 3mf</b>：每个源的每块板原样保留为新板，板内摆放与颜色不变；生成新记录入库（待整理）。<br><br>原文件保持不变，不创建分组；合并产物不含切片配置，打印前请用 Bambu Studio 重新切片。${plateBlock}${thmRow}`}))return;
   const plates={};
   for(const siStr of Object.keys(_mergePlateSel)){
     const arr=[..._mergePlateSel[siStr]];
@@ -1586,7 +1627,7 @@ async function mergeExport(){
     const j=await r.json();
     if(!r.ok){toast(j.error||'合并失败');return}
     _selIds.clear();toggleMultiMode(false);loadStats();
-    toast(`已生成「${j.file.filename}」，分组「${j.group.name}」已创建`,{btnText:'去看待整理',onBtn(){switchTab('pending')}});
+    toast(`已生成「${j.file.filename}」`,{btnText:'去看待整理',onBtn(){switchTab('pending')}});
   }catch(e){toast('合并失败：'+e.message)}
 }
 

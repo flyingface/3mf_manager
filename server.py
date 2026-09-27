@@ -1027,7 +1027,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_merge_export(self, data):
         """合并导出：按 ids 顺序把多个 3mf 拼盘合并为一个新 3mf，写入 library_root/exports/
-        并入库（pending 记录，走上传同款解析管线），同时自动建组——新记录为主模型、源文件为组件。
+        并入库（pending 记录，走上传同款解析管线）。只做合并，不建分组；需要关联请手动建组。
         源文件全程只读。"""
         try:
             ids = [int(i) for i in (data.get("ids") or [])]
@@ -1103,21 +1103,8 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                     rec = dict(conn.execute("SELECT * FROM files WHERE id=?", (rec["id"],)).fetchone())
             conn.close()
-        # 自动建组：新记录为主（is_primary），源文件为 component（与手动建组的角色口径一致）
-        conn = db_conn()
-        gname = title
-        cur = conn.execute("INSERT INTO asset_groups(name, kind, cover_file_id, created_at) VALUES(?,?,?,?)",
-                           (gname, "kit", rec["id"], time.strftime("%Y-%m-%d %H:%M:%S")))
-        gid = cur.lastrowid
-        conn.execute("INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,1,1)",
-                     (gid, rec["id"], "component", "high"))
-        for row in rows:
-            conn.execute("INSERT OR IGNORE INTO group_members(group_id,file_id,role,confidence,is_primary,confirmed) VALUES(?,?,?,?,0,1)",
-                         (gid, row["id"], "component", "high"))
-        conn.commit()
-        payload = api_group_payload(conn, gid)
-        conn.close()
-        self._send(200, {"ok": True, "file": rec, "group": payload})
+        # 只做合并：不再自动建组（历史版本自动建的分组保留不动）
+        self._send(200, {"ok": True, "file": rec})
 
     def _api_merge_plates(self, q):
         """列出待合并源的板结构（选板 UI 用）。GET /api/merge-plates?ids=1,2

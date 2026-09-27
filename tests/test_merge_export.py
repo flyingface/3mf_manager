@@ -488,7 +488,8 @@ import json
 import urllib.request
 
 
-def test_merge_export_api_creates_record_and_group(client):
+def test_merge_export_api_creates_record_only(client):
+    """合并导出只做合并入库：不再自动建组（2.8.4 起行为变更）。"""
     from tests.test_api import fetch as api
 
     ra = api(client, "/api/upload", files=[("file", "a.3mf", _make_3mf_bytes("模型A", "CNme1"))])
@@ -498,25 +499,20 @@ def test_merge_export_api_creates_record_and_group(client):
 
     r = api(client, "/api/merge-export", data={"ids": [fa["id"], fb["id"]]})
     assert r["ok"], r
-    f, g = r["file"], r["group"]
+    f = r["file"]
+    # 响应不再带 group，分组表保持为空
+    assert "group" not in r
+    assert api(client, "/api/groups")["groups"] == []
     # 新记录：pending、位于 exports/、几何计数是两源之和
     assert f["status"] == "pending"
     assert f["rel_path"].replace("\\", "/").startswith("exports/")
     assert f["vertices"] == 6 + 11
-    # 分组：3 名成员，新记录为主、源为组件，封面=新记录
-    assert g["stats"]["total"] == 3 and g["cover_file_id"] == f["id"]
-    by_fid = {m["file_id"]: m for m in g["members"]}
-    assert by_fid[f["id"]]["is_primary"] is True
-    assert by_fid[fa["id"]]["role"] == "component" and by_fid[fb["id"]]["role"] == "component"
-    assert not by_fid[fa["id"]]["is_primary"]
     # 核心约束：源文件字节一字未动
     for fid, p in ((fa["id"], fa["abs_path"]), (fb["id"], fb["abs_path"])):
         assert open(p, "rb").read() == snap[fid]
-    # 组名用中文显示名；落盘文件名必须全 ASCII（Bambu GUI 对中文路径可能拒开）
-    assert g["name"] == f"合并_2个模型_" + f["filename"][len("merge_2models_"):-4]
-    stem = f["filename"][:-4]
-    assert stem == f"merge_2models_" + g["name"][len("合并_2个模型_"):]
-    assert stem.isascii() and f["rel_path"].isascii()
+    # 落盘文件名必须全 ASCII（Bambu GUI 对中文路径可能拒开）
+    assert f["filename"].startswith("merge_2models_")
+    assert f["rel_path"].isascii()
 
 
 def test_merge_export_api_rejections(client):

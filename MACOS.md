@@ -25,7 +25,7 @@
   uv sync                                            # 自动创建 .venv 并装好一切
   ```
 
-- **浏览器**：Chrome / Edge / Arc 体验最佳；Safari 基本可用，但有一处限制（见 [Safari 与「照片」图库](#safari-与照片图库的限制)）。
+- **浏览器**：Chrome / Edge / Arc 体验最佳；Safari 基本可用，「照片」图库选图已做兼容（见 [Safari 与「照片」图库](#safari-与照片图库)）。
 - **Bambu Studio**（可选）：想用「🖨 Bambu 打开」功能需先安装 [Bambu Studio](https://bambulab.com/en/support/download-studio)，默认装到 `/Applications/BambuStudio.app`。
 
 ### 启动
@@ -111,12 +111,11 @@ rm ~/Library/LaunchAgents/com.mfmanager.plist
 
 卡片上 hover 点 📷 上传自定义缩略图时，直接选 Apple 图库导出的 **HEIC/HEIF**（以及 BMP/TIFF）都没问题：服务端调用 macOS 自带的 `sips` 自动转成 JPEG 存储，**无需安装 ImageMagick**。转换成功会有「已上传并自动转换」提示。
 
-### Safari 与「照片」图库的限制
+### Safari 与「照片」图库
 
-在 Safari 中点 📷 → 从「照片」图库选图，Safari 有时给出 **0 字节**文件，上传会提示改用 Chrome 或先从「照片」导出。两种绕过方式：
+点 📷 → 从「照片」图库选图时，Safari 给出的是特殊代理文件（`size` 报 0 字节、直接上传会是空请求）。前端已做兼容：先把图片字节在页面内读出，再重新打包上传，Safari 里也能直接选图成功。
 
-- 缩略图上传这一步改用 Chrome / Edge / Arc；
-- 或在「照片」App 里把图片拖到桌面/先导出，再从 Finder 选择上传（拖拽过来的文件不受此限制）。
+若个别系统版本仍取不到字节（会提示「未取到图片数据」），最稳的方式是把照片从「照片」App **直接拖到模型卡片上**——卡片出现蓝色虚线框时松手即完成更换，Chrome / Safari 都支持，HEIC 同样自动转 JPEG；从 Finder 拖图同理。
 
 ## 外观：跟随系统的深色模式
 
@@ -158,7 +157,7 @@ kill <PID>                        # 或换端口：PORT=9000 ./service.sh start
 见上文 [Bambu Studio 一节](#-用-bambu-studio-一键打开)；若装的是 beta 版或改过名的 App，`open -a BambuStudio` 匹配不到，回退逻辑会尝试系统默认应用。
 
 **缩略图上传没内容？**
-Safari 图库 0 字节问题（见上文），换 Chrome 或从「照片」导出后再传。
+把照片从「照片」App 直接拖到模型卡片上即可；或先导出为 JPG/PNG 再点 📷 选图上传（Safari 图库选图的兼容处理见上文）。
 
 **升级后行为异常？**
 `git pull` 后执行 `uv sync` 同步依赖即可；数据库 schema 会自动增量迁移，无需手动操作。
