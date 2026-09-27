@@ -32,6 +32,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setattr(server, "THUMB_DIR", str(tmp_path / "thumbs"))
     monkeypatch.setattr(server, "ATTACH_DIR", str(tmp_path / "attach"))
+    # 删除测试会把文件移入回收站：不隔离的话，测试桩会泄进仓库根的真实 .trash/
+    monkeypatch.setattr(server, "TRASH_DIR", str(tmp_path / "trash"))
     server.init_db()
     # 启动服务
     srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)

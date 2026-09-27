@@ -44,6 +44,7 @@ import db as dbm            # 存储层（schema/迁移/路径工具，显式传
 import classify             # 分类/别名/目录规划纯逻辑层
 import relate               # 确定性关联（design_id/geom_sig/词干聚类）
 import merge_3mf            # 3mf 拼盘合并（只读源，输出新包）
+import backup as backupm    # 备份/恢复（全量打包 + 后台任务）
 
 # ---- 组合根：把 classify/db 的纯逻辑与运行时配置绑定并对外复用（兼容旧 API）----
 SEP = classify.SEP
@@ -246,6 +247,22 @@ def attachment_full_path(row):
 def file_full_path(row):
     """把文件记录解析为当前库根下的绝对路径（rel_path 优先，兼容老记录）。"""
     return dbm.file_full_path(row, LIBRARY_ROOT)
+
+def backup_paths():
+    """备份/恢复涉及的全部路径（显式传参，随全局配置热更新，便于测试隔离）。"""
+    return {"db_path": DB_PATH, "config_path": llm_client.CONFIG_PATH,
+            "library_root": LIBRARY_ROOT, "thumb_dir": THUMB_DIR,
+            "attach_dir": ATTACH_DIR, "trash_dir": TRASH_DIR, "data_dir": DATA_DIR}
+
+def refresh_runtime_paths():
+    """恢复配置后重建运行时全局（库根/待整理箱），与 set-config 同款逻辑。"""
+    global LIBRARY_ROOT, INBOX
+    cfg = llm_client.load_config()
+    LIBRARY_ROOT = os.path.expanduser(cfg["paths"].get("library_root") or LIBRARY_ROOT)
+    INBOX = os.path.join(LIBRARY_ROOT, "00_待整理")
+    os.makedirs(LIBRARY_ROOT, exist_ok=True)
+    os.makedirs(INBOX, exist_ok=True)
+    init_db()
 
 # ---------------------------------------------------------------
 # LLM 增强功能
@@ -856,6 +873,60 @@ class Handler(BaseHTTPRequestHandler):
             pass  # 表尚无自增记录时该表不存在，忽略
         conn.commit(); conn.close()
         self._send(200, {"ok": True, "removed": removed, "root": LIBRARY_ROOT})
+
+    # ---- 备份与恢复（全量打包到指定目录 / 从备份包还原）----
+    def _api_backup_start(self, data):
+        path = (data.get("path") or "").strip()
+        if not path:
+            self._send(400, {"error": "请填写备份目标目录"}); return
+        dest = os.path.abspath(os.path.expanduser(path))
+        if not os.path.isdir(dest):
+            self._send(400, {"error": f"目录不存在：{dest}（请确认 NAS / 移动硬盘已挂载）"}); return
+        try:
+            job = backupm.start_job(
+                "backup", dest,
+                lambda prog: backupm.create_backup(dest_dir=dest, progress=prog, **backup_paths()))
+        except backupm.BusyError as e:
+            self._send(409, {"error": str(e)}); return
+        self._send(200, {"ok": True, "job": job})
+
+    def _api_backup_status(self, q):
+        self._send(200, {"job": backupm.job_snapshot("backup", q.get("job_id", [None])[0])})
+
+    def _api_backup_list(self, q):
+        path = (q.get("path", [""])[0] or "").strip()
+        if not path:
+            self._send(400, {"error": "请填写备份所在目录"}); return
+        try:
+            entries = backupm.list_backups(path)
+        except backupm.BackupError as e:
+            self._send(400, {"error": str(e)}); return
+        self._send(200, {"entries": entries, "path": os.path.abspath(os.path.expanduser(path))})
+
+    def _api_restore_start(self, data):
+        path = (data.get("path") or "").strip()
+        if not path:
+            self._send(400, {"error": "请填写备份包路径或所在目录"}); return
+        src = os.path.abspath(os.path.expanduser(path))
+        if not os.path.exists(src):
+            self._send(400, {"error": f"路径不存在：{src}（请确认 NAS / 移动硬盘已挂载）"}); return
+        try:
+            job = backupm.start_job(
+                "restore", src,
+                lambda prog: self._run_restore(src, prog))
+        except backupm.BusyError as e:
+            self._send(409, {"error": str(e)}); return
+        self._send(200, {"ok": True, "job": job})
+
+    @staticmethod
+    def _run_restore(src, prog):
+        """恢复 + 还原配置后重建运行时全局（后台线程内执行）。"""
+        result = backupm.restore_backup(zip_path=src, progress=prog, **backup_paths())
+        refresh_runtime_paths()
+        return result
+
+    def _api_restore_status(self, q):
+        self._send(200, {"job": backupm.job_snapshot("restore", q.get("job_id", [None])[0])})
 
     def _api_about(self, _=None):
         """返回面向普通用户的「关于」说明（Markdown 文本）。"""
@@ -2103,6 +2174,9 @@ GET_ROUTES = {
     "/api/config": Handler._api_get_config,
     "/api/attachments": Handler._api_attachments,
     "/api/dirs": Handler._api_dirs,
+    "/api/backup/status": Handler._api_backup_status,
+    "/api/backup/list": Handler._api_backup_list,
+    "/api/restore/status": Handler._api_restore_status,
     "/api/merge-plates": Handler._api_merge_plates,
     "/api/rules": lambda h, _: h._api_rules({}),
     "/api/groups": Handler._api_groups,
@@ -2133,6 +2207,8 @@ POST_ROUTES = {
     "/api/recategorize": Handler._api_recategorize,
     "/api/return-pending": Handler._api_return_pending,
     "/api/reset-library": Handler._api_reset_library,
+    "/api/backup/start": Handler._api_backup_start,
+    "/api/restore/start": Handler._api_restore_start,
     "/api/open-folder": Handler._api_open_folder,
     "/api/open-in-bambu": Handler._api_open_in_bambu,
     "/api/set-alias": Handler._api_set_alias,

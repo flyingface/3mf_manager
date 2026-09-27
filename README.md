@@ -29,6 +29,7 @@
 | **仪表盘** | 资产总览、分类分布、Hash 重复提示 |
 | **设置** | 模型能力（Base URL / Key / 模型名）+ 本地路径可视化配置 |
 | **初始化** | 设置页可一键「初始化模型根目录」（需二次确认与路径校验），清空全部数据并重置索引与自增 id，从头开始 |
+| **备份与恢复** | 设置页一键全量备份到任意目录（NAS 挂载路径即可）：SQLite 索引 + 模型文件 + 缩略图/附件/回收站 + 配置，打包为单个 zip 原子落盘，后台任务带进度条；恢复时扫描目录选择备份包，整体替换当前数据，恢复前自动快照当前状态到 `backups/` 以防万一 |
 | **关于** | 左侧一级菜单「关于」，查看功能、使用规则、最近更新与版本信息 |
 
 ## 📸 界面预览
@@ -128,6 +129,7 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 ├── classify.py         # 分类/别名/目录规划纯逻辑层
 ├── rules.json          # 分类规则数据（IP 关键词/目录映射/噪音词，可编辑扩充）
 ├── db.py               # SQLite 存储层（schema 版本化迁移 + 路径/哈希工具）
+├── backup.py           # 备份/恢复（全量打包 + 后台任务 + 进度上报）
 ├── llm_client.py       # OpenAI 兼容 LLM 客户端 + 会话管理
 ├── parse_3mf.py        # 3MF 解析器（ZIP/XML，字节级几何计数）
 ├── subcat.py           # 子分类语义（Dummy13/Minecraft/功能父类子类）
@@ -175,6 +177,10 @@ macOS 开机自启示例见 `scripts/com.mfmanager.plist.example`（launchd）�
 | POST | `/api/chat` | 多轮对话智能体 |
 | POST | `/api/search-llm` | 语义检索 |
 | POST | `/api/reset-library` | 初始化模型根目录（清空数据并重置索引） |
+| POST | `/api/backup/start` | 启动全量备份（`{path}` 目标目录，可为 NAS 挂载路径；后台任务，全局互斥） |
+| POST | `/api/restore/start` | 启动恢复（`{path}` 备份包或所在目录；恢复前自动快照当前数据） |
+| GET | `/api/backup/status` / `/api/restore/status` | 轮询备份/恢复任务进度与结果 |
+| GET | `/api/backup/list` | 扫描目录下的备份包（含版本/模型数/时间元信息） |
 | GET | `/api/files` | 查询（q/cat/status/tag/design_id + limit/offset 分页，返回 total，行内嵌 attachments） |
 | GET | `/api/dirs` | 列出模型根目录下已存在目录（供归档路径选择） |
 | GET | `/api/stats` | 仪表盘统计 |

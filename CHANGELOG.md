@@ -2,6 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.9.0] - 2026-09-27
+
+### 新增
+- **全量备份到任意目录（含 NAS）**：设置页新增「备份与恢复」面板，填入目标目录（NAS 挂载路径即可，如 `/Volumes/NAS/3mf_backup`）一键备份。备份 = SQLite 索引（`sqlite3` backup API 一致性快照，服务运行中也可安全复制）+ 模型文件（库根全量）+ 缩略图/附件/回收站 + config.json，打包为单个 `3mf_manager_backup_YYYYMMDD_HHMMSS.zip`，先写 `.part` 临时文件再原子改名，NAS 断连不会留下半截包。大库打包放后台任务执行（全局互斥），进度条实时显示阶段与文件数，页面刷新后重进设置页自动恢复进度显示；上次目标目录本地记忆
+- **从备份包恢复**：填入备份包所在目录或 zip 路径 →「扫描备份」列出包清单（应用版本 / schema 版本 / 模型数 / 大小 / 时间），选择后二次确认开始恢复。恢复 = 解包校验（zip-slip 白名单防护、schema 版本前瞻性拒绝）→ **自动把当前数据快照到数据目录 `backups/pre_restore_*.zip`**（恢复有误可回退）→ 整体替换（模型文件/索引/缩略图/附件/回收站/配置）→ 按相对路径重算绝对路径（换机/换盘恢复自动对齐当前库根；备份中的 LLM 等配置照常还原，但库根目录保持当前设置）。备份包放在库内也不会被恢复过程误删（自动代管并回填原位）
+- **API**：`POST /api/backup/start`、`GET /api/backup/status`、`GET /api/backup/list`、`POST /api/restore/start`、`GET /api/restore/status`
+- 新增 `backup.py` 模块（打包/恢复/任务调度纯逻辑）与 13 个测试：备份还原回环、恢复前快照、跨库根重算、目录恢复取最新、zip-slip 拦截、备份包自保护、HTTP 任务流程等；conftest 补 `TRASH_DIR` 隔离，修复测试套件向真实 `.trash/` 泄漏测试桩的既有问题
+
 ## [2.8.4] - 2026-09-27
 
 ### 变更
