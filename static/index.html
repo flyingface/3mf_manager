@@ -160,6 +160,7 @@ input::placeholder{color:var(--tert)}
 .pill.comp{background:var(--primary-soft);color:var(--primary-d)}
 .pill.var{background:var(--warn-soft);color:var(--warn);border:1px dashed var(--warn-border)}
 .pill.clickable{cursor:pointer}
+.pill.clickable:hover{filter:brightness(.94)}
 .pill.prn{background:var(--bg2);color:var(--muted)}
 .pillgrp{display:flex;gap:4px;flex-wrap:wrap;margin:7px 0}
 .card-hd .meta{font-size:11px;color:var(--tert);margin-top:auto;line-height:1.5}
@@ -386,8 +387,13 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
 .attach-list{font-size:12px;color:var(--muted);margin-top:6px}
 .attach-list a{color:var(--primary);text-decoration:none;margin-right:8px}
 .attach-list .x{cursor:pointer;margin-right:8px}
-.pager{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:18px}
-.pager .pi{font-size:13px;color:var(--muted)}
+.pager{display:flex;align-items:center;gap:6px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+.pager .pg{min-width:30px;height:27px;padding:0 7px;border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:var(--r-sm);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:border-color .15s,background .15s,color .15s}
+.pager .pg:hover{border-color:var(--primary);color:var(--primary)}
+.pager .pg.on{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.pager .pg[disabled]{opacity:1;cursor:default}
+.pager .pg svg{width:14px;height:14px}
+.pager .pi{font-size:12px;color:var(--muted);margin-left:10px}
 /* ---- toast ---- */
 .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:#1c2330;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;z-index:300;opacity:0;transition:.25s;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -517,6 +523,17 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <button class="btn ok" onclick="applyAll()">确认全部归档</button>
           </div>
         </div>
+        <div class="toolbar" style="margin-bottom:10px">
+          <input type="text" id="pendQ" placeholder="搜索 名称/文件名/MakeWorld ID/分类/tag..." style="flex:1;min-width:200px" oninput="debouncedPendingView()">
+          <select id="pendSort" onchange="pendingSortChange()" title="排序字段">
+            <option value="time">按时间</option>
+            <option value="name">按名称</option>
+            <option value="size">按大小</option>
+            <option value="makerworld">按 MakerWorld ID</option>
+            <option value="category">按分类</option>
+          </select>
+          <button class="btn ghost sm" id="pendDirBtn" onclick="togglePendDir()" title="切换升序/降序">↓ 降序</button>
+        </div>
         <div id="pendingWrap"></div>
       </div>
     </section>
@@ -544,7 +561,6 @@ div.dr-thumb{display:flex;align-items:center;justify-content:center;color:var(--
             <button class="btn p" onclick="libPage=1;search()">查询</button>
           </div>
           <div id="selBar" class="toolbar" style="display:none;margin-bottom:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:10px"></div>
-          <div class="hint" style="margin-bottom:8px">语义搜索请用「智能对话」。</div>
           <div id="libWrap"></div>
         </div>
         <div id="libWorksBox" style="display:none">
@@ -725,6 +741,10 @@ const IC={
   sun:_svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
   moon:_svg('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'),
   auto:_svg('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>'),
+  first:_svg('<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>'),
+  prev:_svg('<polyline points="15 18 9 12 15 6"/>'),
+  next:_svg('<polyline points="9 18 15 12 9 6"/>'),
+  last:_svg('<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>'),
 };
 
 // ===== 统一确认对话框（替代原生 confirm，风格与全站一致） =====
@@ -1173,8 +1193,50 @@ $('#drawerMask').addEventListener('click',closeDrawer);
 // ===== 待整理 =====
 function skeletonHTML(n=6){let s='<div class="skel">';for(let i=0;i<n;i++){s+=`<div class="sk-card"><div class="sk-bg sk-img"></div><div class="sk-bg sk-line w80"></div><div class="sk-bg sk-line w60"></div><div class="sk-bg sk-line w40"></div></div>`}s+='</div>';return s}
 function emptyHTML(ic,t,s,btn){return `<div class="empty"><div class="ic">${ic}</div><div class="t">${t}</div><div class="s">${s}</div>${btn||''}</div>`}
-async function loadPending(){try{$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files);$('#pendCount').textContent=j.files.length}catch(e){$('#pendingWrap').innerHTML=emptyHTML('⚠','加载失败','无法获取待整理列表，请确认服务是否在运行。','')}loadStats()}
-function renderPending(files){cacheFiles(files);window._pendingIds=files.map(f=>f.id);const hint=$('#aiBatchHint');if(hint)hint.textContent=files.length?`(${files.length})`:'';const w=$('#pendingWrap');if(!files.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');return}w.innerHTML='<div class="grid">'+files.map(f=>cardHTML(f)).join('')+'</div>'}
+async function loadPending(){try{$('#pendingWrap').innerHTML=skeletonHTML(4);const r=await fetch('/api/files?status=pending');const j=await r.json();renderPending(j.files)}catch(e){$('#pendingWrap').innerHTML=emptyHTML('⚠','加载失败','无法获取待整理列表，请确认服务是否在运行。','')}loadStats()}
+// 待整理列表一次性全量拉取，搜索/排序在客户端做（即时响应）；_pendingAll 永远保存全量，
+// window._pendingIds 也始终是全量 id（AI 批量整理、抽屉操作后的就地重绘都依赖它）
+let _pendingAll=[],_pendDir={time:'desc',name:'asc',size:'desc',makerworld:'asc',category:'asc'};
+function renderPending(files){cacheFiles(files);window._pendingIds=(files||[]).map(f=>f.id);_pendingAll=files||[];const hint=$('#aiBatchHint');if(hint)hint.textContent=files.length?`(${files.length})`:'';paintPending()}
+function pendingHeadName(f){return String((f.alias&&f.alias!==f.filename)?f.alias:f.filename||'')}
+function pendingFiltered(){
+  const kw=($('#pendQ')?$('#pendQ').value:'').trim().toLowerCase();
+  let list=_pendingAll;
+  if(kw)list=list.filter(f=>[f.filename,f.alias,f.title,f.design_id,f.category,f.tags].some(v=>(v||'').toLowerCase().includes(kw)));
+  const key=($('#pendSort')?$('#pendSort').value:'time')||'time';
+  const dir=_pendDir[key]==='desc'?-1:1;
+  const byName=(a,b)=>pendingHeadName(a).localeCompare(pendingHeadName(b),'zh-CN');
+  const cmp={
+    name:byName,
+    size:(a,b)=>(parseFloat(a.size_mb)||0)-(parseFloat(b.size_mb)||0),
+    // created_at 为 'YYYY-MM-DD HH:MM:SS' 字典序即时间序，同秒按 id（对齐服务端 created_at DESC, id DESC）
+    time:(a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))||a.id-b.id,
+    category:(a,b)=>String(a.category||'').localeCompare(String(b.category||''),'zh-CN')
+  }[key];
+  return list.slice().sort((a,b)=>{
+    if(key==='makerworld'){ // MakerWorld ID 数字感知排序；无 ID 的文件无论升降序始终垫底
+      const xa=String(a.design_id||''),xb=String(b.design_id||'');
+      if(!xa&&!xb)return byName(a,b);
+      if(!xa)return 1;if(!xb)return -1;
+      return dir*xa.localeCompare(xb,undefined,{numeric:true,sensitivity:'base'})||byName(a,b);
+    }
+    return dir*(cmp(a,b)||byName(a,b));
+  });
+}
+function paintPending(){
+  const w=$('#pendingWrap');if(!w)return;
+  const q=($('#pendQ')?$('#pendQ').value:'').trim();
+  if(!_pendingAll.length){w.innerHTML=emptyHTML('⇪','暂无待整理文件','上传 3MF 后，系统会自动解析、预分类并生成建议归档名与摆盘图。','<button class="btn p" onclick="switchTab(\'library\')">前往模型库</button>');const c=$('#pendCount');if(c)c.textContent='0';return}
+  const list=pendingFiltered();
+  const c=$('#pendCount');if(c)c.textContent=q?`${list.length}/${_pendingAll.length}`:String(_pendingAll.length);
+  if(!list.length){w.innerHTML=emptyHTML('🔍','无匹配文件',`没有匹配「${esc(q)}」的待整理文件。`,'<button class="btn sm" onclick="clearPendingFilter()">清空搜索</button>');return}
+  w.innerHTML='<div class="grid">'+list.map(f=>cardHTML(f)).join('')+'</div>';
+}
+let _pdt;function debouncedPendingView(){clearTimeout(_pdt);_pdt=setTimeout(paintPending,300)}
+function clearPendingFilter(){const i=$('#pendQ');if(i)i.value='';paintPending()}
+function pendingSortChange(){updatePendDirBtn();paintPending()}
+function togglePendDir(){const key=($('#pendSort')?$('#pendSort').value:'time')||'time';_pendDir[key]=_pendDir[key]==='desc'?'asc':'desc';updatePendDirBtn();paintPending()}
+function updatePendDirBtn(){const key=($('#pendSort')?$('#pendSort').value:'time')||'time';const b=$('#pendDirBtn');if(b)b.textContent=_pendDir[key]==='desc'?'↓ 降序':'↑ 升序'}
 async function applyOne(id){const r=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],rename:true})});const j=await r.json();toast(j.results[0].ok?'已归档':'失败：'+(j.results[0].error||'未知原因'));closeDrawer();loadPending();if(typeof search==='function')search()}
 async function applyAll(){const r=await fetch('/api/files?status=pending');const j=await r.json();const all=j.files;if(!all.length){toast('无待整理');return}const archivable=all.filter(f=>!f.is_duplicate);const skipped=all.length-archivable.length;const ids=archivable.map(f=>f.id);const r2=await fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,rename:true})});const j2=await r2.json();let msg=`归档 ${j2.results.filter(x=>x.ok).length}/${ids.length}`;if(skipped>0)msg+=`（跳过 ${skipped} 个重复文件）`;toast(msg);loadPending();if(typeof search==='function')search()}
 
@@ -1575,11 +1637,21 @@ function paintLib(){
   if(!libItems.length&&libTotal>0&&libPage>pages){libPage=pages;return search()}
   const w=$('#libWrap');
   if(!libItems.length){w.innerHTML=emptyHTML('▤','未找到匹配模型','试试调整关键词、分类或状态筛选。','');return}
-  let html=`<div class="hint" style="margin-bottom:10px">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</div><div class="grid${_multiMode?' multi':''}">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';
-  html+=`<div class="pager"><button class="btn ghost sm" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>上一页</button><span class="pi">${libPage} / ${pages}</span><button class="btn ghost sm" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>下一页</button></div>`;
+  let html=`<div class="grid${_multiMode?' multi':''}">`+libItems.map(f=>cardHTML(f)).join('')+'</div>';
+  // 页码窗口：以当前页为中心取 10 页，贴近边界时收拢；总页数不足 10 则全部列出
+  const start=Math.max(1,Math.min(libPage-5,pages-9)),end=Math.min(pages,start+9);
+  let nums='';for(let i=start;i<=end;i++)nums+=`<button class="pg${i===libPage?' on':''}"${i===libPage?' disabled aria-current="page"':''} onclick="libGo(${i})">${i}</button>`;
+  html+=`<div class="pager">`
+    +`<button class="btn ghost sm" title="首页" aria-label="首页" onclick="libGo(1)" ${libPage<=1?'disabled':''}>${IC.first}</button>`
+    +`<button class="btn ghost sm" title="上一页" aria-label="上一页" onclick="libGo(${libPage-1})" ${libPage<=1?'disabled':''}>${IC.prev}</button>`
+    +nums
+    +`<button class="btn ghost sm" title="下一页" aria-label="下一页" onclick="libGo(${libPage+1})" ${libPage>=pages?'disabled':''}>${IC.next}</button>`
+    +`<button class="btn ghost sm" title="尾页" aria-label="尾页" onclick="libGo(${pages})" ${libPage>=pages?'disabled':''}>${IC.last}</button>`
+    +`<span class="pi">共 ${libTotal} 个 · 第 ${libPage}/${pages} 页</span>`
+    +`</div>`;
   w.innerHTML=html;
 }
-function libGo(p){if(p<1)return;libPage=p;search()}
+function libGo(p){const pages=Math.max(1,Math.ceil(libTotal/libPageSize));if(p<1||p>pages||p===libPage)return;libPage=p;search()}
 
 // ===== 多选 + 合并导出（拼盘合并为 1 个新 3mf，入库并自动建组） =====
 let _multiMode=false,_selIds=new Set();
@@ -2256,13 +2328,23 @@ async function loadDash(){const r=await fetch('/api/stats');const j=await r.json
   <div class="dash-card"><div class="num">${j.attachments}</div><div class="lbl">附件</div></div>
   <div class="dash-card"><div class="num">${j.dup_groups}</div><div class="lbl">重复组</div></div>`;
   const cats=Object.entries(j.categories).sort((a,b)=>b[1]-a[1]);
-  $('#dashCats').innerHTML=cats.length?cats.map(([c,n])=>`<span class="pill cat">${esc(c)} × ${n}</span>`).join(' '):'<div class="hint">暂无分类</div>';
+  $('#dashCats').innerHTML=cats.length?cats.map(([c,n])=>c?`<span class="pill cat clickable" data-cat="${esc(c)}" title="点击到模型库按「${esc(c)}」筛选" onclick="dashCatJump(this)">${esc(c)} × ${n}</span>`:`<span class="pill cat">${esc(c)} × ${n}</span>`).join(' '):'<div class="hint">暂无分类</div>';
   const fr=await fetch('/api/files');const fj=await fr.json();cacheFiles(fj.files);const seen={},dups=[];
   fj.files.forEach(f=>{if(!f.sha256)return;if(seen[f.sha256])dups.push([seen[f.sha256],f]);else seen[f.sha256]=f});
   $('#dashDup').innerHTML=dups.length?dups.map(([a,b])=>`<span class="pill r">${esc(a.filename)} ⚠ 与 ${esc(b.filename)} 相同</span>`).join(' '):'<div class="hint">无内容重复</div>';
   loadRecent();
 }
 // ===== 仪表盘·最近打开 =====
+// 分类分布 pill → 跳转模型库，按该分类筛选
+function dashCatJump(el){
+  const top=(el.dataset.cat||'').split(' · ')[0]; // 顶级分类，与库筛选下拉口径一致
+  $('#q').value='';
+  libPage=1;
+  const sel=$('#f-cat');
+  sel.value=top;
+  if(sel.value!==top)sel.value=''; // 下拉无此选项时退回全部分类
+  switchTab('library');
+}
 async function loadRecent(){
   try{
     const r=await fetch('/api/recent');const j=await r.json();const rec=j.files||[];
